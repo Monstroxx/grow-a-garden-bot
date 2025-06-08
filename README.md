@@ -85,10 +85,14 @@ python gag-aleart.py
 - `!addemojis` - Lädt Custom Emojis von der Website
 - `!rawstock` - Zeigt Debug-Informationen
 - `!testnotify <kategorie>` - Testet Benachrichtigungen
+- `!resetroles` - Role-Messages aktualisieren
+- `!stock` - Manueller Stock-Check
++ `!updateemojis` - Emojis herunterladen
 
 ### Public Commands
 - `!currentstock` - Zeigt aktuelle Stocks kategorisiert
 - `!listroles` - Zeigt alle verfügbaren Rollen
+- `!help` - Hilfe anzeigen
 
 ## 🏗️ Architektur
 

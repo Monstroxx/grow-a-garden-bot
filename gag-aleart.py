@@ -72,7 +72,8 @@ detailed_roles = {
     
     # Spezifische Premium Gear Items (sehr selten und begehrt)
     'master_sprinkler': {'emoji': '💧', 'color': discord.Color.from_rgb(0, 191, 255), 'category': 'Gear'},      # Master Sprinkler
-    'friendship_pot': {'emoji': '💖', 'color': discord.Color.from_rgb(255, 105, 180), 'category': 'Gear'},      # Friendship Pot/Favorite Tool
+    'favorite_tool': {'emoji': '💖', 'color': discord.Color.from_rgb(255, 105, 180), 'category': 'Gear'},       # Favorite Tool
+    'friendship_pot': {'emoji': '🤝', 'color': discord.Color.from_rgb(255, 165, 0), 'category': 'Gear'},        # Friendship Pot
     
     # Honey Items
     'flower_items': {'emoji': '🌻', 'color': discord.Color.from_rgb(255, 215, 0), 'category': 'Honey'},
@@ -115,7 +116,8 @@ class GearDropdown(discord.ui.Select):
         options = [
             discord.SelectOption(label="Alle Gear", description="Alle Ausrüstungs-Updates", emoji="⚒️", value="gear_stock_notify"),
             discord.SelectOption(label="Master Sprinkler", description="Nur Master Sprinkler", emoji="💧", value="master_sprinkler_stock_notify"),
-            discord.SelectOption(label="Friendship Pot", description="Nur Friendship Pot", emoji="💖", value="friendship_pot_stock_notify"),
+            discord.SelectOption(label="Favorite Tool", description="Nur Favorite Tool", emoji="💖", value="favorite_tool_stock_notify"),
+            discord.SelectOption(label="Friendship Pot", description="Nur Friendship Pot", emoji="🤝", value="friendship_pot_stock_notify"),
             discord.SelectOption(label="Divine Gear", description="Nur Divine Gear", emoji="✨", value="divine_gear_stock_notify"),
             discord.SelectOption(label="Mythical Gear", description="Nur Mythical Gear", emoji="🔮", value="mythical_gear_stock_notify"),
             discord.SelectOption(label="Legendary Gear", description="Nur Legendary Gear", emoji="🏆", value="legendary_gear_stock_notify"),
@@ -208,7 +210,7 @@ async def handle_role_selection(interaction, selected_values, category_name):
             # Nur Rollen der entsprechenden Kategorie entfernen
             if category_name == "Seeds" and any(x in role.name for x in ['seeds', 'prismatic', 'divine', 'mythical', 'legendary', 'rare', 'uncommon', 'common']):
                 roles_to_remove.append(role)
-            elif category_name == "Gear" and any(x in role.name for x in ['gear', 'divine_gear', 'mythical_gear', 'legendary_gear', 'rare_gear', 'common_gear', 'master_sprinkler', 'friendship_pot']):
+            elif category_name == "Gear" and any(x in role.name for x in ['gear', 'divine_gear', 'mythical_gear', 'legendary_gear', 'rare_gear', 'common_gear', 'master_sprinkler', 'favorite_tool', 'friendship_pot']):
                 roles_to_remove.append(role)
             elif category_name == "Eggs" and any(x in role.name for x in ['egg', 'night_egg', 'bug_egg', 'mythical_egg', 'legendary_egg', 'rare_egg', 'uncommon_egg', 'common_egg']):
                 roles_to_remove.append(role)
@@ -615,7 +617,9 @@ def determine_detailed_rarity(item_name, category):
         # Spezifische ultra-rare Gear Items (höchste Priorität)
         if 'master sprinkler' in item_lower:
             return 'master_sprinkler'
-        elif 'favorite tool' in item_lower or 'friendship pot' in item_lower:
+        elif 'favorite tool' in item_lower:
+            return 'favorite_tool'
+        elif 'friendship pot' in item_lower:
             return 'friendship_pot'
         
         # Basierend auf offiziellem Gear Wiki
@@ -720,7 +724,7 @@ async def on_ready():
         )
         embed.add_field(
             name="⭐ Wichtigste Raritäten:",
-            value="• **Seeds**: 🌈 Prismatic, ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Eggs**: 🔮 Mythical, 🏆 Legendary, 🐛 Bug, 🌙 Night\n• **Gear**: 💧 Master Sprinkler, 💖 Friendship Pot, ✨ Divine, 🔮 Mythical\n• **Cosmetics**: 💎 Luxury, 📦 Crate Items\n• **Honey**: 🌻 Flower, 🐝 Bee, 🍯 Honey Items",
+            value="• **Seeds**: 🌈 Prismatic, ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Eggs**: 🔮 Mythical, 🏆 Legendary, 🐛 Bug, 🌙 Night\n• **Gear**: 💧 Master Sprinkler, 💖 Favorite Tool, 🤝 Friendship Pot, ✨ Divine\n• **Cosmetics**: 💎 Luxury, 📦 Crate Items\n• **Honey**: 🌻 Flower, 🐝 Bee, 🍯 Honey Items",
             inline=False
         )
 @bot.event
@@ -762,7 +766,7 @@ async def on_ready():
         )
         embed.add_field(
             name="⭐ Wichtigste Raritäten:",
-            value="• **Seeds**: 🌈 Prismatic, ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Eggs**: 🔮 Mythical, 🏆 Legendary, 🐛 Bug, 🌙 Night\n• **Gear**: 💧 Master Sprinkler, 💖 Friendship Pot, ✨ Divine, 🔮 Mythical\n• **Cosmetics**: 💎 Luxury, 📦 Crate Items\n• **Honey**: 🌻 Flower, 🐝 Bee, 🍯 Honey Items",
+            value="• **Seeds**: 🌈 Prismatic, ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Eggs**: 🔮 Mythical, 🏆 Legendary, 🐛 Bug, 🌙 Night\n• **Gear**: 💧 Master Sprinkler, 💖 Favorite Tool, 🤝 Friendship Pot, ✨ Divine\n• **Cosmetics**: 💎 Luxury, 📦 Crate Items\n• **Honey**: 🌻 Flower, 🐝 Bee, 🍯 Honey Items",
             inline=False
         )
         embed.add_field(
@@ -1406,7 +1410,7 @@ async def reset_role_messages(ctx):
         )
         embed.add_field(
             name="⭐ Wichtigste Raritäten:",
-            value="• **Seeds**: 🌈 Prismatic, ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Eggs**: 🔮 Mythical, 🏆 Legendary, 🐛 Bug, 🌙 Night\n• **Gear**: 💧 Master Sprinkler, 💖 Friendship Pot, ✨ Divine, 🔮 Mythical\n• **Cosmetics**: 💎 Luxury, 📦 Crate Items\n• **Honey**: 🌻 Flower, 🐝 Bee, 🍯 Honey Items",
+            value="• **Seeds**: 🌈 Prismatic, ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Eggs**: 🔮 Mythical, 🏆 Legendary, 🐛 Bug, 🌙 Night\n• **Gear**: 💧 Master Sprinkler, 💖 Favorite Tool, 🤝 Friendship Pot, ✨ Divine\n• **Cosmetics**: 💎 Luxury, 📦 Crate Items\n• **Honey**: 🌻 Flower, 🐝 Bee, 🍯 Honey Items",
             inline=False
         )
         embed.set_footer(text="Wähle aus den Dropdown-Menüs unten aus")

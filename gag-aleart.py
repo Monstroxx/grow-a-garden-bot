@@ -70,6 +70,10 @@ detailed_roles = {
     'mythical_gear': {'emoji': '🔮', 'color': discord.Color.purple(), 'category': 'Gear'},
     'divine_gear': {'emoji': '✨', 'color': discord.Color.from_rgb(255, 215, 0), 'category': 'Gear'},
     
+    # Spezifische Premium Gear Items (sehr selten und begehrt)
+    'master_sprinkler': {'emoji': '💧', 'color': discord.Color.from_rgb(0, 191, 255), 'category': 'Gear'},      # Master Sprinkler
+    'friendship_pot': {'emoji': '💖', 'color': discord.Color.from_rgb(255, 105, 180), 'category': 'Gear'},      # Friendship Pot/Favorite Tool
+    
     # Honey Items
     'flower_items': {'emoji': '🌻', 'color': discord.Color.from_rgb(255, 215, 0), 'category': 'Honey'},
     'bee_items': {'emoji': '🐝', 'color': discord.Color.from_rgb(255, 193, 7), 'category': 'Honey'},
@@ -110,6 +114,8 @@ class GearDropdown(discord.ui.Select):
     def __init__(self):
         options = [
             discord.SelectOption(label="Alle Gear", description="Alle Ausrüstungs-Updates", emoji="⚒️", value="gear_stock_notify"),
+            discord.SelectOption(label="Master Sprinkler", description="🚨 ULTRA RARE - Master Sprinkler", emoji="💧", value="master_sprinkler_stock_notify"),
+            discord.SelectOption(label="Friendship Pot", description="🚨 ULTRA RARE - Friendship Pot", emoji="💖", value="friendship_pot_stock_notify"),
             discord.SelectOption(label="Divine Gear", description="Nur Divine Gear", emoji="✨", value="divine_gear_stock_notify"),
             discord.SelectOption(label="Mythical Gear", description="Nur Mythical Gear", emoji="🔮", value="mythical_gear_stock_notify"),
             discord.SelectOption(label="Legendary Gear", description="Nur Legendary Gear", emoji="🏆", value="legendary_gear_stock_notify"),
@@ -202,7 +208,7 @@ async def handle_role_selection(interaction, selected_values, category_name):
             # Nur Rollen der entsprechenden Kategorie entfernen
             if category_name == "Seeds" and any(x in role.name for x in ['seeds', 'prismatic', 'divine', 'mythical', 'legendary', 'rare', 'uncommon', 'common']):
                 roles_to_remove.append(role)
-            elif category_name == "Gear" and any(x in role.name for x in ['gear', 'divine_gear', 'mythical_gear', 'legendary_gear', 'rare_gear', 'common_gear']):
+            elif category_name == "Gear" and any(x in role.name for x in ['gear', 'divine_gear', 'mythical_gear', 'legendary_gear', 'rare_gear', 'common_gear', 'master_sprinkler', 'friendship_pot']):
                 roles_to_remove.append(role)
             elif category_name == "Eggs" and any(x in role.name for x in ['egg', 'night_egg', 'bug_egg', 'mythical_egg', 'legendary_egg', 'rare_egg', 'uncommon_egg', 'common_egg']):
                 roles_to_remove.append(role)
@@ -510,6 +516,8 @@ async def send_category_stock_update(category, items):
     
     # Füge Items hinzu und sammle spezifische Rollen
     items_text = ""
+    vip_items = []  # Sammle VIP Items für spezielle Behandlung
+    
     for item_name, item_data in items:
         quantity = item_data.get('quantity', 1)
         
@@ -518,6 +526,10 @@ async def send_category_stock_update(category, items):
         specific_role = discord.utils.get(guild.roles, name=f"{detailed_rarity}_stock_notify")
         if specific_role:
             mentioned_roles.add(specific_role)
+        
+        # Prüfe auf VIP Items (Master Sprinkler & Friendship Pot)
+        if detailed_rarity in ['master_sprinkler', 'friendship_pot']:
+            vip_items.append((item_name, item_data, detailed_rarity))
         
         # Suche nach Custom Emoji mit der neuen Funktion
         custom_emoji = get_item_emoji(guild, item_name)
@@ -529,10 +541,26 @@ async def send_category_stock_update(category, items):
         items_text += f"{item_display} **{item_name}** (x{quantity}) - *{detailed_rarity.replace('_', ' ').title()}*\n"
     
     embed.add_field(name="Verfügbare Items:", value=items_text, inline=False)
+    
+    # Spezielle VIP-Behandlung
+    if vip_items:
+        vip_text = "🚨 **ULTRA RARE ALERT!** 🚨\n"
+        for vip_name, vip_data, vip_rarity in vip_items:
+            vip_emoji = detailed_roles.get(vip_rarity, {}).get('emoji', '🔥')
+            vip_text += f"{vip_emoji} **{vip_name}** - SOFORT ZUSCHLAGEN!\n"
+        embed.add_field(name="🔥 VIP ALERT:", value=vip_text, inline=False)
+        
+        # Verwende rote Farbe für VIP-Alerts
+        embed.color = discord.Color.red()
+    
     embed.set_footer(text="Grow a Garden Stock Bot")
     
     # Erstelle Mention-String
     mentions = " ".join([role.mention for role in mentioned_roles])
+    
+    # Extra @everyone für VIP Items
+    if vip_items:
+        mentions = "@everyone " + mentions
     
     await channel.send(content=mentions, embed=embed)
 
@@ -605,10 +633,16 @@ def determine_detailed_rarity(item_name, category):
             return 'common_seeds'  # Fallback für unbekannte Seeds
     
     elif category == 'Gear':
+        # Spezifische ultra-rare Gear Items (höchste Priorität)
+        if 'master sprinkler' in item_lower:
+            return 'master_sprinkler'
+        elif 'favorite tool' in item_lower or 'friendship pot' in item_lower:
+            return 'friendship_pot'
+        
         # Basierend auf offiziellem Gear Wiki
         
         # Divine Gear
-        divine_gear = ['harvest tool', 'master sprinkler', 'favorite tool']
+        divine_gear = ['harvest tool']
         
         # Mythical Gear  
         mythical_gear = ['lightning rod', 'godly sprinkler', 'chocolate sprinkler']
@@ -707,7 +741,7 @@ async def on_ready():
         )
         embed.add_field(
             name="⭐ Wichtigste Raritäten:",
-            value="• **Seeds**: 🌈 Prismatic, ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Eggs**: 🔮 Mythical, 🏆 Legendary, 🐛 Bug, 🌙 Night\n• **Gear**: ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Cosmetics**: 💎 Luxury, 📦 Crate Items\n• **Honey**: 🌻 Flower, 🐝 Bee, 🍯 Honey Items",
+            value="• **Seeds**: 🌈 Prismatic, ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Eggs**: 🔮 Mythical, 🏆 Legendary, 🐛 Bug, 🌙 Night\n• **Gear**: 💧 Master Sprinkler, 💖 Friendship Pot, ✨ Divine, 🔮 Mythical\n• **Cosmetics**: 💎 Luxury, 📦 Crate Items\n• **Honey**: 🌻 Flower, 🐝 Bee, 🍯 Honey Items",
             inline=False
         )
 @bot.event
@@ -749,12 +783,12 @@ async def on_ready():
         )
         embed.add_field(
             name="⭐ Wichtigste Raritäten:",
-            value="• **Seeds**: 🌈 Prismatic, ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Eggs**: 🔮 Mythical, 🏆 Legendary, 🐛 Bug, 🌙 Night\n• **Gear**: ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Cosmetics**: 💎 Luxury, 📦 Crate Items\n• **Honey**: 🌻 Flower, 🐝 Bee, 🍯 Honey Items",
+            value="• **Seeds**: 🌈 Prismatic, ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Eggs**: 🔮 Mythical, 🏆 Legendary, 🐛 Bug, 🌙 Night\n• **Gear**: 💧 Master Sprinkler, 💖 Friendship Pot, ✨ Divine, 🔮 Mythical\n• **Cosmetics**: 💎 Luxury, 📦 Crate Items\n• **Honey**: 🌻 Flower, 🐝 Bee, 🍯 Honey Items",
             inline=False
         )
         embed.add_field(
             name="💡 Tipp:",
-            value="Verwende `!listroles` um alle 40+ verfügbaren Rollen zu sehen!\nCustom Emojis werden automatisch von der Website geladen.",
+            value="Verwende `!listroles` um alle 40+ verfügbaren Rollen zu sehen!\n🚨 Master Sprinkler & Friendship Pot = @everyone Alert!\nCustom Emojis werden automatisch von der Website geladen.",
             inline=False
         )
         embed.set_footer(text="Wähle aus den Dropdown-Menüs unten aus")
@@ -1393,7 +1427,7 @@ async def reset_role_messages(ctx):
         )
         embed.add_field(
             name="⭐ Wichtigste Raritäten:",
-            value="• **Seeds**: 🌈 Prismatic, ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Eggs**: 🔮 Mythical, 🏆 Legendary, 🐛 Bug, 🌙 Night\n• **Gear**: ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Cosmetics**: 💎 Luxury, 📦 Crate Items\n• **Honey**: 🌻 Flower, 🐝 Bee, 🍯 Honey Items",
+            value="• **Seeds**: 🌈 Prismatic, ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Eggs**: 🔮 Mythical, 🏆 Legendary, 🐛 Bug, 🌙 Night\n• **Gear**: 💧 Master Sprinkler, 💖 Friendship Pot, ✨ Divine, 🔮 Mythical\n• **Cosmetics**: 💎 Luxury, 📦 Crate Items\n• **Honey**: 🌻 Flower, 🐝 Bee, 🍯 Honey Items",
             inline=False
         )
         embed.set_footer(text="Wähle aus den Dropdown-Menüs unten aus")

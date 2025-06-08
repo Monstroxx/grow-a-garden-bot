@@ -114,8 +114,8 @@ class GearDropdown(discord.ui.Select):
     def __init__(self):
         options = [
             discord.SelectOption(label="Alle Gear", description="Alle Ausrüstungs-Updates", emoji="⚒️", value="gear_stock_notify"),
-            discord.SelectOption(label="Master Sprinkler", description="🚨 ULTRA RARE - Master Sprinkler", emoji="💧", value="master_sprinkler_stock_notify"),
-            discord.SelectOption(label="Friendship Pot", description="🚨 ULTRA RARE - Friendship Pot", emoji="💖", value="friendship_pot_stock_notify"),
+            discord.SelectOption(label="Master Sprinkler", description="Nur Master Sprinkler", emoji="💧", value="master_sprinkler_stock_notify"),
+            discord.SelectOption(label="Friendship Pot", description="Nur Friendship Pot", emoji="💖", value="friendship_pot_stock_notify"),
             discord.SelectOption(label="Divine Gear", description="Nur Divine Gear", emoji="✨", value="divine_gear_stock_notify"),
             discord.SelectOption(label="Mythical Gear", description="Nur Mythical Gear", emoji="🔮", value="mythical_gear_stock_notify"),
             discord.SelectOption(label="Legendary Gear", description="Nur Legendary Gear", emoji="🏆", value="legendary_gear_stock_notify"),
@@ -516,7 +516,6 @@ async def send_category_stock_update(category, items):
     
     # Füge Items hinzu und sammle spezifische Rollen
     items_text = ""
-    vip_items = []  # Sammle VIP Items für spezielle Behandlung
     
     for item_name, item_data in items:
         quantity = item_data.get('quantity', 1)
@@ -526,10 +525,6 @@ async def send_category_stock_update(category, items):
         specific_role = discord.utils.get(guild.roles, name=f"{detailed_rarity}_stock_notify")
         if specific_role:
             mentioned_roles.add(specific_role)
-        
-        # Prüfe auf VIP Items (Master Sprinkler & Friendship Pot)
-        if detailed_rarity in ['master_sprinkler', 'friendship_pot']:
-            vip_items.append((item_name, item_data, detailed_rarity))
         
         # Suche nach Custom Emoji mit der neuen Funktion
         custom_emoji = get_item_emoji(guild, item_name)
@@ -541,26 +536,10 @@ async def send_category_stock_update(category, items):
         items_text += f"{item_display} **{item_name}** (x{quantity}) - *{detailed_rarity.replace('_', ' ').title()}*\n"
     
     embed.add_field(name="Verfügbare Items:", value=items_text, inline=False)
-    
-    # Spezielle VIP-Behandlung
-    if vip_items:
-        vip_text = "🚨 **ULTRA RARE ALERT!** 🚨\n"
-        for vip_name, vip_data, vip_rarity in vip_items:
-            vip_emoji = detailed_roles.get(vip_rarity, {}).get('emoji', '🔥')
-            vip_text += f"{vip_emoji} **{vip_name}** - SOFORT ZUSCHLAGEN!\n"
-        embed.add_field(name="🔥 VIP ALERT:", value=vip_text, inline=False)
-        
-        # Verwende rote Farbe für VIP-Alerts
-        embed.color = discord.Color.red()
-    
     embed.set_footer(text="Grow a Garden Stock Bot")
     
     # Erstelle Mention-String
     mentions = " ".join([role.mention for role in mentioned_roles])
-    
-    # Extra @everyone für VIP Items
-    if vip_items:
-        mentions = "@everyone " + mentions
     
     await channel.send(content=mentions, embed=embed)
 
@@ -788,7 +767,7 @@ async def on_ready():
         )
         embed.add_field(
             name="💡 Tipp:",
-            value="Verwende `!listroles` um alle 40+ verfügbaren Rollen zu sehen!\n🚨 Master Sprinkler & Friendship Pot = @everyone Alert!\nCustom Emojis werden automatisch von der Website geladen.",
+            value="Verwende `!listroles` um alle 40+ verfügbaren Rollen zu sehen!\nCustom Emojis werden automatisch von der Website geladen.",
             inline=False
         )
         embed.set_footer(text="Wähle aus den Dropdown-Menüs unten aus")

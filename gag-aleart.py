@@ -150,30 +150,45 @@ class EggsDropdown(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         await handle_role_selection(interaction, self.values, "Eggs")
 
-class HoneyCosmetics(discord.ui.Select):
+class HoneyDropdown(discord.ui.Select):
     def __init__(self):
         options = [
             discord.SelectOption(label="Alle Honey", description="Alle Honig-Updates", emoji="🍯", value="honey_stock_notify"),
             discord.SelectOption(label="Honey Items", description="Nur Honey Items", emoji="🍯", value="honey_items_stock_notify"),
             discord.SelectOption(label="Bee Items", description="Nur Bee Items", emoji="🐝", value="bee_items_stock_notify"),
-            discord.SelectOption(label="Flower Items", description="Nur Flower Items", emoji="🌻", value="flower_items_stock_notify"),
-            discord.SelectOption(label="Alle Cosmetics", description="Alle Kosmetik-Updates", emoji="🎨", value="cosmetics_stock_notify"),
-            discord.SelectOption(label="Luxury Cosmetics", description="Nur Luxury Cosmetics", emoji="💎", value="luxury_cosmetics_stock_notify"),
-            discord.SelectOption(label="Premium Cosmetics", description="Nur Premium Cosmetics", emoji="🏗️", value="premium_cosmetics_stock_notify"),
-            discord.SelectOption(label="Basic Cosmetics", description="Nur Basic Cosmetics", emoji="🪑", value="basic_cosmetics_stock_notify"),
-            discord.SelectOption(label="Cheap Cosmetics", description="Nur Cheap Cosmetics", emoji="🎨", value="cheap_cosmetics_stock_notify"),
-            discord.SelectOption(label="Crate Cosmetics", description="Nur Crate Cosmetics", emoji="📦", value="crate_cosmetics_stock_notify")
+            discord.SelectOption(label="Flower Items", description="Nur Flower Items", emoji="🌻", value="flower_items_stock_notify")
         ]
         
         super().__init__(
-            placeholder="🍯🎨 Honey & Cosmetics wählen...",
+            placeholder="🍯 Honey-Benachrichtigungen wählen...",
             min_values=0,
             max_values=len(options),
             options=options
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await handle_role_selection(interaction, self.values, "Honey/Cosmetics")
+        await handle_role_selection(interaction, self.values, "Honey")
+
+class CosmeticsDropdown(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Alle Cosmetics", description="Alle Kosmetik-Updates", emoji="🎨", value="cosmetics_stock_notify"),
+            discord.SelectOption(label="Luxury Cosmetics", description="Nur Luxury Cosmetics (50M+)", emoji="💎", value="luxury_cosmetics_stock_notify"),
+            discord.SelectOption(label="Premium Cosmetics", description="Nur Premium Cosmetics (10M-50M)", emoji="🏗️", value="premium_cosmetics_stock_notify"),
+            discord.SelectOption(label="Basic Cosmetics", description="Nur Basic Cosmetics (1M-10M)", emoji="🪑", value="basic_cosmetics_stock_notify"),
+            discord.SelectOption(label="Cheap Cosmetics", description="Nur Cheap Cosmetics (<1M)", emoji="🎨", value="cheap_cosmetics_stock_notify"),
+            discord.SelectOption(label="Crate Cosmetics", description="Nur Crate Cosmetics", emoji="📦", value="crate_cosmetics_stock_notify")
+        ]
+        
+        super().__init__(
+            placeholder="🎨 Cosmetics-Benachrichtigungen wählen...",
+            min_values=0,
+            max_values=len(options),
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await handle_role_selection(interaction, self.values, "Cosmetics")
 
 async def handle_role_selection(interaction, selected_values, category_name):
     """Behandelt die Rollenauswahl für alle Dropdowns"""
@@ -191,7 +206,9 @@ async def handle_role_selection(interaction, selected_values, category_name):
                 roles_to_remove.append(role)
             elif category_name == "Eggs" and any(x in role.name for x in ['egg', 'night_egg', 'bug_egg', 'mythical_egg', 'legendary_egg', 'rare_egg', 'uncommon_egg', 'common_egg']):
                 roles_to_remove.append(role)
-            elif category_name == "Honey/Cosmetics" and any(x in role.name for x in ['honey', 'cosmetics', 'bee_items', 'flower_items', 'luxury', 'premium', 'basic', 'cheap', 'crate']):
+            elif category_name == "Honey" and any(x in role.name for x in ['honey', 'bee_items', 'flower_items', 'honey_items']):
+                roles_to_remove.append(role)
+            elif category_name == "Cosmetics" and any(x in role.name for x in ['cosmetics', 'luxury', 'premium', 'basic', 'cheap', 'crate']):
                 roles_to_remove.append(role)
     
     for role in roles_to_remove:
@@ -272,10 +289,15 @@ class EggsView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(EggsDropdown())
 
-class HoneyCosmView(discord.ui.View):
+class HoneyView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(HoneyCosmetics())
+        self.add_item(HoneyDropdown())
+
+class CosmeticsView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(CosmeticsDropdown())
 
 async def fetch_stock_data():
     """Holt die aktuellen Stock-Daten von der Website"""
@@ -386,6 +408,56 @@ async def check_stock():
     
     previous_stock = current_stock
 
+@tasks.loop(hours=24)
+async def daily_emoji_check():
+    """Überprüft täglich auf neue Emojis von der Website"""
+    print("🔄 Täglicher Emoji-Check...")
+    downloaded = await auto_download_emojis()
+    if downloaded:
+        print(f"✅ {len(downloaded)} neue Emojis heruntergeladen")
+    else:
+        print("ℹ️ Keine neuen Emojis gefunden")
+
+@bot.command(name='updateemojis')
+async def update_emojis_command(ctx):
+    """Manueller Command um neue Emojis herunterzuladen"""
+    if ctx.author.guild_permissions.administrator:
+        await ctx.send("🔄 Suche nach neuen Emojis...")
+        downloaded = await auto_download_emojis()
+        
+        if downloaded:
+            emoji_list = "\n".join([f"{emoji['emoji']} `{emoji['name']}`" for emoji in downloaded[:10]])
+            if len(downloaded) > 10:
+                emoji_list += f"\n... und {len(downloaded) - 10} weitere"
+            
+            await ctx.send(f"✅ **{len(downloaded)} neue Emojis heruntergeladen:**\n{emoji_list}")
+        else:
+            await ctx.send("ℹ️ Keine neuen Emojis gefunden. Alle verfügbaren Emojis sind bereits vorhanden.")
+    else:
+        await ctx.send("❌ Du benötigst Administrator-Rechte für diesen Befehl.")
+    """Überprüft alle 5 Minuten die Stock-Änderungen"""
+    global previous_stock
+    
+    current_stock = await fetch_stock_data()
+    if not current_stock:
+        return
+    
+    # Gruppiere neue Items nach Kategorien
+    new_items_by_category = {}
+    
+    for item_name, item_data in current_stock.items():
+        if item_name not in previous_stock:
+            category = item_data.get('category', 'Special Items')
+            if category not in new_items_by_category:
+                new_items_by_category[category] = []
+            new_items_by_category[category].append((item_name, item_data))
+    
+    # Sende Benachrichtigungen für jede Kategorie
+    for category, items in new_items_by_category.items():
+        await send_category_stock_update(category, items)
+    
+    previous_stock = current_stock
+
 async def send_category_stock_update(category, items):
     """Sendet eine kombinierte Stock-Update-Nachricht für eine Kategorie"""
     guild = bot.get_guild(bot.guilds[0].id) if bot.guilds else None
@@ -447,17 +519,13 @@ async def send_category_stock_update(category, items):
         if specific_role:
             mentioned_roles.add(specific_role)
         
-        # Suche nach Custom Emoji
-        custom_emoji = None
-        for emoji_obj in guild.emojis:
-            if emoji_obj.name.lower() == item_name.lower().replace(' ', '_').replace('-', '_'):
-                custom_emoji = str(emoji_obj)
-                break
+        # Suche nach Custom Emoji mit der neuen Funktion
+        custom_emoji = get_item_emoji(guild, item_name)
         
         # Bestimme Rarität-Emoji
         rarity_emoji = detailed_roles.get(detailed_rarity, {}).get('emoji', emoji)
         
-        item_display = f"{custom_emoji}" if custom_emoji else rarity_emoji
+        item_display = str(custom_emoji) if custom_emoji else rarity_emoji
         items_text += f"{item_display} **{item_name}** (x{quantity}) - *{detailed_rarity.replace('_', ' ').title()}*\n"
     
     embed.add_field(name="Verfügbare Items:", value=items_text, inline=False)
@@ -646,9 +714,28 @@ async def on_ready():
 async def on_ready():
     print(f'{bot.user} ist online!')
     
-    # Role-Setup-Nachrichten senden
+    # Automatischer Emoji-Download beim Start
+    print("🔄 Starte automatischen Emoji-Download...")
+    await auto_download_emojis()
+    
+    # Role-Setup-Nachrichten senden (alte Nachrichten löschen)
     channel = bot.get_channel(ROLE_CHANNEL_ID)
     if channel:
+        # Lösche alte Bot-Nachrichten in diesem Channel
+        print("🧹 Lösche alte Bot-Nachrichten...")
+        try:
+            async for message in channel.history(limit=100):
+                if message.author == bot.user:
+                    try:
+                        await message.delete()
+                        await asyncio.sleep(0.5)  # Rate limiting
+                    except:
+                        pass
+        except Exception as e:
+            print(f"⚠️ Konnte alte Nachrichten nicht löschen: {e}")
+        
+        print("📝 Sende neue Role-Setup-Nachrichten...")
+        
         # Hauptnachricht
         embed = discord.Embed(
             title="🌱 Grow a Garden Stock Benachrichtigungen",
@@ -667,12 +754,13 @@ async def on_ready():
         )
         embed.add_field(
             name="💡 Tipp:",
-            value="Verwende `!listroles` um alle 40+ verfügbaren Rollen zu sehen!\nWeitere Rollen werden automatisch erstellt wenn sie ausgewählt werden.",
+            value="Verwende `!listroles` um alle 40+ verfügbaren Rollen zu sehen!\nCustom Emojis werden automatisch von der Website geladen.",
             inline=False
         )
         embed.set_footer(text="Wähle aus den Dropdown-Menüs unten aus")
         
         await channel.send(embed=embed)
+        await asyncio.sleep(1)
         
         # Seeds Dropdown
         seeds_embed = discord.Embed(
@@ -681,6 +769,7 @@ async def on_ready():
             color=discord.Color.green()
         )
         await channel.send(embed=seeds_embed, view=SeedsView())
+        await asyncio.sleep(1)
         
         # Gear Dropdown
         gear_embed = discord.Embed(
@@ -689,6 +778,7 @@ async def on_ready():
             color=discord.Color.blue()
         )
         await channel.send(embed=gear_embed, view=GearView())
+        await asyncio.sleep(1)
         
         # Eggs Dropdown
         eggs_embed = discord.Embed(
@@ -697,18 +787,36 @@ async def on_ready():
             color=discord.Color.orange()
         )
         await channel.send(embed=eggs_embed, view=EggsView())
+        await asyncio.sleep(1)
         
-        # Honey & Cosmetics Dropdown
-        honey_cosm_embed = discord.Embed(
-            title="🍯🎨 Honey & Cosmetics Benachrichtigungen",
-            description="Wähle Honey- und Cosmetics-Kategorien für Benachrichtigungen:",
+        # Honey Dropdown
+        honey_embed = discord.Embed(
+            title="🍯 Honey Benachrichtigungen",
+            description="Wähle Honey-Kategorien für Benachrichtigungen:",
             color=discord.Color.gold()
         )
-        await channel.send(embed=honey_cosm_embed, view=HoneyCosmView())
+        await channel.send(embed=honey_embed, view=HoneyView())
+        await asyncio.sleep(1)
+        
+        # Cosmetics Dropdown
+        cosmetics_embed = discord.Embed(
+            title="🎨 Cosmetics Benachrichtigungen",
+            description="Wähle Cosmetics-Kategorien für Benachrichtigungen:",
+            color=discord.Color.purple()
+        )
+        await channel.send(embed=cosmetics_embed, view=CosmeticsView())
+        
+        print("✅ Role-Setup-Nachrichten gesendet!")
     
     # Stock-Überwachung starten
     if not check_stock.is_running():
         check_stock.start()
+    
+    # Täglicher Emoji-Check starten
+    if not daily_emoji_check.is_running():
+        daily_emoji_check.start()
+    
+    print("🚀 Bot vollständig gestartet und bereit!")
 
 @bot.command(name='stock')
 async def manual_stock_check(ctx):
@@ -826,71 +934,198 @@ async def setup_channels(ctx):
     else:
         await ctx.send("❌ Du benötigst Administrator-Rechte für diesen Befehl.")
 
-@bot.command(name='addemojis')
-async def add_custom_emojis(ctx):
-    """Lädt Custom Emojis von der Website herunter und fügt sie zum Server hinzu"""
-    if ctx.author.guild_permissions.administrator:
-        guild = ctx.guild
-        await ctx.send("🔄 Lade Custom Emojis herunter...")
+async def auto_download_emojis():
+    """Lädt automatisch alle verfügbaren Item-Emojis von der Website herunter"""
+    guild = bot.guilds[0] if bot.guilds else None
+    if not guild:
+        return
+    
+    print("🔄 Automatischer Emoji-Download gestartet...")
+    
+    # Check Server-Emoji-Limit
+    server_emoji_count = len(guild.emojis)
+    if server_emoji_count >= 50:
+        print(f"⚠️ Server-Emoji-Limit erreicht ({server_emoji_count}/50)")
+        print("💡 Verwende Bot-eigene Emojis stattdessen...")
+        return await download_bot_emojis()
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            async with session.get(STOCK_URL, headers=headers) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    soup = BeautifulSoup(html, 'html.parser')
+                    
+                    # Finde alle img-Tags in den Stock-Listen
+                    img_tags = soup.find_all('img', src=True)
+                    
+                    downloaded_emojis = []
+                    failed_emojis = []
+                    
+                    for img in img_tags:
+                        img_src = img.get('src', '')
+                        
+                        # Überspringe externe Bilder und Icons
+                        if not img_src.startswith('/images/') or 'icon' in img_src.lower():
+                            continue
+                        
+                        # Extrahiere Item-Namen aus dem Pfad
+                        item_filename = img_src.split('/')[-1]
+                        item_name = item_filename.replace('.png', '').replace('.jpg', '').replace('.webp', '')
+                        emoji_name = item_name.lower().replace('-', '_').replace(' ', '_')
+                        
+                        # Überspringe wenn Emoji bereits existiert
+                        if discord.utils.get(guild.emojis, name=emoji_name):
+                            continue
+                        
+                        # Checke Server-Emoji-Limit
+                        if len(guild.emojis) >= 50:
+                            print(f"⚠️ Server-Emoji-Limit erreicht während Download")
+                            break
+                        
+                        try:
+                            # Download Bild
+                            full_url = f"https://vulcanvalues.com{img_src}"
+                            async with session.get(full_url, headers=headers) as img_response:
+                                if img_response.status == 200:
+                                    image_data = await img_response.read()
+                                    
+                                    # Erstelle Emoji
+                                    emoji = await guild.create_custom_emoji(
+                                        name=emoji_name,
+                                        image=image_data,
+                                        reason="Auto-downloaded from stock website"
+                                    )
+                                    downloaded_emojis.append({
+                                        'name': emoji_name,
+                                        'original': item_name,
+                                        'emoji': emoji
+                                    })
+                                    print(f"✅ {emoji_name} -> {emoji}")
+                                    
+                                    # Kleine Pause um Rate-Limits zu vermeiden
+                                    await asyncio.sleep(0.5)
+                                    
+                                else:
+                                    failed_emojis.append(f"{item_name} (HTTP {img_response.status})")
+                                    
+                        except Exception as e:
+                            failed_emojis.append(f"{item_name} ({str(e)[:50]})")
+                    
+                    print(f"🎉 Emoji-Download abgeschlossen: {len(downloaded_emojis)} erfolgreich, {len(failed_emojis)} fehlgeschlagen")
+                    return downloaded_emojis
+                    
+    except Exception as e:
+        print(f"❌ Fehler beim automatischen Emoji-Download: {e}")
+        return []
+
+async def download_bot_emojis():
+    """Alternative: Verwendet Bot-Application-Emojis (wenn Server-Limit erreicht)"""
+    print("🤖 Verwende Bot-eigene Emoji-Fallbacks...")
+    
+    # Erstelle ein Dictionary mit Item-Name-Mappings zu Standard-Emojis
+    bot_emoji_mapping = {
+        # Seeds
+        'carrot': '🥕',
+        'corn': '🌽', 
+        'bamboo': '🎋',
+        'strawberry': '🍓',
+        'grape': '🍇',
+        'tomato': '🍅',
+        'blueberry': '🫐',
+        'watermelon': '🍉',
+        'pumpkin': '🎃',
+        'apple': '🍎',
+        'coconut': '🥥',
+        'cactus': '🌵',
+        'mushroom': '🍄',
+        'pepper': '🌶️',
+        'pineapple': '🍍',
+        'peach': '🍑',
+        'banana': '🍌',
+        'lemon': '🍋',
         
-        # Items und ihre Bild-URLs von der Website
-        emoji_items = [
-            'Trowel', 'Favorite-Tool', 'Recall-Wrench', 'Watering-Can', 'Harvest-Tool',
-            'Rare-Egg', 'Bug-Egg', 'Common-Egg',
-            'Carrot', 'Corn', 'Bamboo', 'Strawberry', 'Grape', 'Tomato', 'Blueberry',
-            'Flower-Seed-Pack', 'Lavender', 'Honey-Comb', 'Bee-Chair',
-            'Sign-Crate', 'Log-Bench', 'Torch', 'Rake', 'Medium-Circle-Tile', 
-            'Red-Well', 'Flat-Canopy', 'Small-Stone-Table', 'Small-Stone-Pad'
-        ]
+        # Gear
+        'trowel': '🛠️',
+        'watering_can': '🚿',
+        'harvest_tool': '⚒️',
+        'lightning_rod': '⚡',
+        'sprinkler': '💧',
         
-        added_emojis = []
-        failed_emojis = []
+        # Eggs
+        'egg': '🥚',
+        'rare_egg': '💎',
+        'bug_egg': '🐛',
+        'common_egg': '🥚',
         
-        for item in emoji_items:
-            emoji_name = item.lower().replace('-', '_')
-            
-            # Prüfe ob Emoji bereits existiert
-            if discord.utils.get(guild.emojis, name=emoji_name):
-                continue
-            
-            try:
-                # Download Bild von der Website
-                image_url = f"https://vulcanvalues.com/images/{item}.png"
-                
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(image_url) as resp:
-                        if resp.status == 200:
-                            image_data = await resp.read()
-                            
-                            # Füge Emoji zum Server hinzu
-                            emoji = await guild.create_custom_emoji(
-                                name=emoji_name,
-                                image=image_data,
-                                reason="Grow a Garden Stock Bot Emojis"
-                            )
-                            added_emojis.append(f":{emoji_name}: {item}")
-                        else:
-                            failed_emojis.append(f"{item} (HTTP {resp.status})")
-            except Exception as e:
-                failed_emojis.append(f"{item} ({str(e)[:50]})")
+        # Honey
+        'honey': '🍯',
+        'bee': '🐝',
+        'flower': '🌻',
+        'lavender': '💜',
         
-        result_msg = ""
-        if added_emojis:
-            result_msg += f"✅ **Emojis hinzugefügt** ({len(added_emojis)}):\n" + "\n".join(added_emojis[:10])
-            if len(added_emojis) > 10:
-                result_msg += f"\n... und {len(added_emojis) - 10} weitere"
-        
-        if failed_emojis:
-            result_msg += f"\n\n❌ **Fehlgeschlagen** ({len(failed_emojis)}):\n" + "\n".join(failed_emojis[:5])
-            if len(failed_emojis) > 5:
-                result_msg += f"\n... und {len(failed_emojis) - 5} weitere"
-        
-        if not added_emojis and not failed_emojis:
-            result_msg = "ℹ️ Alle Emojis existieren bereits."
-        
-        await ctx.send(result_msg)
-    else:
-        await ctx.send("❌ Du benötigst Administrator-Rechte für diesen Befehl.")
+        # Cosmetics
+        'torch': '🔥',
+        'bench': '🪑',
+        'table': '🪑',
+        'well': '🪣',
+        'tree': '🌳',
+        'stone': '🗿'
+    }
+    
+    # Speichere das Mapping in einer globalen Variable
+    global emoji_fallbacks
+    emoji_fallbacks = bot_emoji_mapping
+    
+    print(f"✅ {len(bot_emoji_mapping)} Bot-Emoji-Fallbacks geladen")
+    return []
+
+def get_item_emoji(guild, item_name):
+    """Findet das passende Emoji für ein Item (Server oder Bot-Fallback)"""
+    if not guild:
+        return get_fallback_emoji(item_name)
+    
+    # Verschiedene Varianten des Item-Namens ausprobieren
+    search_variants = [
+        item_name.lower().replace(' ', '_').replace('-', '_'),
+        item_name.lower().replace(' ', '').replace('-', ''),
+        item_name.lower().replace(' ', '-').replace('_', '-'),
+        ''.join(item_name.lower().split()),
+    ]
+    
+    # Erst Server-Emojis suchen
+    for variant in search_variants:
+        emoji = discord.utils.get(guild.emojis, name=variant)
+        if emoji:
+            return emoji
+    
+    # Fallback zu Bot-Emojis
+    return get_fallback_emoji(item_name)
+
+def get_fallback_emoji(item_name):
+    """Gibt Fallback-Emojis für Items zurück"""
+    global emoji_fallbacks
+    if 'emoji_fallbacks' not in globals():
+        return None
+    
+    # Suche nach passenden Fallback-Emojis
+    item_lower = item_name.lower()
+    
+    # Direkte Mappings
+    for key, emoji in emoji_fallbacks.items():
+        if key in item_lower:
+            return emoji
+    
+    # Fallback basierend auf Wort-Teilen
+    for word in item_lower.split():
+        for key, emoji in emoji_fallbacks.items():
+            if word in key or key in word:
+                return emoji
+    
+    return None
 
 @bot.command(name='currentstock', aliases=['stocks', 'current'])
 async def show_current_stock(ctx):
@@ -1095,8 +1330,135 @@ async def list_roles(ctx):
     else:
         await ctx.send("❌ Du benötigst Administrator-Rechte für diesen Befehl.")
 
-@bot.command(name='createrole')
-async def create_specific_role(ctx, *, role_name: str = None):
+@bot.command(name='cleanup')
+async def cleanup_messages(ctx):
+    """Löscht alle Bot-Nachrichten im aktuellen Channel"""
+    if ctx.author.guild_permissions.administrator:
+        deleted_count = 0
+        await ctx.send("🧹 Lösche Bot-Nachrichten...")
+        
+        try:
+            async for message in ctx.channel.history(limit=100):
+                if message.author == bot.user:
+                    try:
+                        await message.delete()
+                        deleted_count += 1
+                        await asyncio.sleep(0.5)  # Rate limiting
+                    except:
+                        pass
+            
+            await ctx.send(f"✅ {deleted_count} Bot-Nachrichten gelöscht!", delete_after=5)
+            
+        except Exception as e:
+            await ctx.send(f"❌ Fehler beim Löschen: {e}")
+    else:
+        await ctx.send("❌ Du benötigst Administrator-Rechte für diesen Befehl.")
+
+@bot.command(name='resetroles')  
+async def reset_role_messages(ctx):
+    """Löscht alte Role-Messages und sendet neue"""
+    if ctx.author.guild_permissions.administrator:
+        channel = bot.get_channel(ROLE_CHANNEL_ID)
+        if not channel:
+            await ctx.send("❌ Role-Channel nicht gefunden!")
+            return
+            
+        await ctx.send("🔄 Aktualisiere Role-Setup-Nachrichten...")
+        
+        # Lösche alte Bot-Nachrichten im Role-Channel
+        deleted_count = 0
+        try:
+            async for message in channel.history(limit=100):
+                if message.author == bot.user:
+                    try:
+                        await message.delete()
+                        deleted_count += 1
+                        await asyncio.sleep(0.5)
+                    except:
+                        pass
+        except Exception as e:
+            await ctx.send(f"⚠️ Konnte nicht alle Nachrichten löschen: {e}")
+        
+        # Sende neue Messages
+        # Hauptnachricht
+        embed = discord.Embed(
+            title="🌱 Grow a Garden Stock Benachrichtigungen",
+            description="Wähle die Kategorien aus, für die du Benachrichtigungen erhalten möchtest:",
+            color=discord.Color.green()
+        )
+        embed.add_field(
+            name="📋 Hauptkategorien:",
+            value="• 🌱 **Alle Seeds** - Benachrichtigung für alle Samen\n• ⚒️ **Alle Gear** - Benachrichtigung für alle Ausrüstung\n• 🥚 **Alle Eggs** - Benachrichtigung für alle Eier\n• 🍯 **Alle Honey** - Benachrichtigung für alle Honig-Items\n• 🎨 **Alle Cosmetics** - Benachrichtigung für alle Kosmetik",
+            inline=False
+        )
+        embed.add_field(
+            name="⭐ Wichtigste Raritäten:",
+            value="• **Seeds**: 🌈 Prismatic, ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Eggs**: 🔮 Mythical, 🏆 Legendary, 🐛 Bug, 🌙 Night\n• **Gear**: ✨ Divine, 🔮 Mythical, 🏆 Legendary\n• **Cosmetics**: 💎 Luxury, 📦 Crate Items\n• **Honey**: 🌻 Flower, 🐝 Bee, 🍯 Honey Items",
+            inline=False
+        )
+        embed.set_footer(text="Wähle aus den Dropdown-Menüs unten aus")
+        
+        await channel.send(embed=embed)
+        await asyncio.sleep(1)
+        
+        # Dropdowns
+        await channel.send(embed=discord.Embed(title="🌱 Seeds", color=discord.Color.green()), view=SeedsView())
+        await asyncio.sleep(1)
+        await channel.send(embed=discord.Embed(title="⚒️ Gear", color=discord.Color.blue()), view=GearView())
+        await asyncio.sleep(1)
+        await channel.send(embed=discord.Embed(title="🥚 Eggs", color=discord.Color.orange()), view=EggsView())
+        await asyncio.sleep(1)
+        await channel.send(embed=discord.Embed(title="🍯 Honey", color=discord.Color.gold()), view=HoneyView())
+        await asyncio.sleep(1)
+        await channel.send(embed=discord.Embed(title="🎨 Cosmetics", color=discord.Color.purple()), view=CosmeticsView())
+        
+        await ctx.send(f"✅ Role-Setup aktualisiert! {deleted_count} alte Nachrichten gelöscht.")
+    else:
+        await ctx.send("❌ Du benötigst Administrator-Rechte für diesen Befehl.")
+    """Zeigt alle verfügbaren Commands"""
+    embed = discord.Embed(
+        title="🤖 Grow a Garden Stock Bot Commands",
+        description="Alle verfügbaren Befehle:",
+        color=discord.Color.blue()
+    )
+    
+    admin_commands = [
+        "`!channelsetup` - Erstellt kategorie-spezifische Channels",
+        "`!setup` - Erstellt alle Haupt-Rollen mit Farben",
+        "`!updateemojis` - Lädt neue Custom Emojis von der Website",
+        "`!cleanup` - Löscht alle Bot-Nachrichten im Channel",
+        "`!resetroles` - Aktualisiert Role-Setup-Nachrichten",
+        "`!rawstock` - Zeigt Debug-Informationen der Website",
+        "`!testnotify <kategorie>` - Testet Benachrichtigungen"
+    ]
+    
+    public_commands = [
+        "`!currentstock` - Zeigt aktuelle Stocks kategorisiert",
+        "`!listroles` - Übersicht aller verfügbaren Rollen",
+        "`!help` - Zeigt diese Hilfe"
+    ]
+    
+    embed.add_field(
+        name="👑 Admin Commands:",
+        value="\n".join(admin_commands),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="👥 Public Commands:",
+        value="\n".join(public_commands),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🤖 Automatische Features:",
+        value="• Stock-Monitoring alle 5 Minuten\n• Automatischer Emoji-Download beim Start\n• Täglicher Check auf neue Emojis\n• Intelligente Emoji-Erkennung in Benachrichtigungen",
+        inline=False
+    )
+    
+    embed.set_footer(text="Grow a Garden Stock Bot • Automatisch und immer aktuell")
+    
+    await ctx.send(embed=embed)
     """Erstellt eine spezifische Rolle manuell"""
     if not ctx.author.guild_permissions.administrator:
         await ctx.send("❌ Du benötigst Administrator-Rechte für diesen Befehl.")

@@ -316,13 +316,13 @@ class CosmeticsView(discord.ui.View):
 async def send_category_update(guild, category, items):
     """Sendet ein Stock-Update für eine Kategorie"""
     try:
-        # Finde den entsprechenden Channel - verwende den Channel aus CATEGORY_CHANNELS
+        # Finde den entsprechenden Channel - verwende gag-{category}-stock Format
         channel_mapping = {
-            'Seeds': 'seeds-updates',
-            'Gear': 'gear-updates', 
-            'Eggs': 'eggs-updates',
-            'Honey': 'honey-updates',
-            'Cosmetics': 'cosmetics-updates'
+            'Seeds': 'gag-seeds-stock',
+            'Gear': 'gag-gear-stock', 
+            'Eggs': 'gag-eggs-stock',
+            'Honey': 'gag-honey-stock',
+            'Cosmetics': 'gag-cosmetics-stock'
         }
         
         channel_name = channel_mapping.get(category)

@@ -410,14 +410,26 @@ async def fetch_stock_data():
                                 if item_name and category != 'Unknown':
                                     categories_found[category].append(item_name)
                                     
-                                    stock_data[item_name] = {
+                                    # Handle duplicate items (z.B. 2x Common Egg)
+                                    unique_key = f"{item_name}_{category}"
+                                    counter = 1
+                                    base_key = unique_key
+                                    
+                                    # Finde eindeutigen Key für duplicates
+                                    while unique_key in stock_data:
+                                        counter += 1
+                                        unique_key = f"{base_key}_{counter}"
+                                    
+                                    # Verwende den Item-Namen als Display-Name, aber unique_key als interner Key
+                                    stock_data[unique_key] = {
                                         'available': True,
                                         'category': category,
                                         'quantity': quantity,
                                         'image': img_src,
-                                        'timestamp': datetime.now()
+                                        'timestamp': datetime.now(),
+                                        'display_name': item_name  # Echter Name für Anzeige
                                     }
-                                    print(f"  ✅ {item_name} ({category}) x{quantity}")
+                                    print(f"  ✅ {item_name} ({category}) x{quantity} [Key: {unique_key}]")
                                 
                         except Exception as e:
                             print(f"❌ Fehler beim Parsen von Item: {e}")
@@ -681,8 +693,10 @@ async def send_category_stock_update(category, items):
     # Füge Items hinzu und sammle spezifische Rollen
     items_text = ""
     
-    for item_name, item_data in items:
+    for item_key, item_data in items:
         quantity = item_data.get('quantity', 1)
+        # Verwende display_name falls verfügbar, sonst den Key
+        item_name = item_data.get('display_name', item_key)
         
         # Bestimme spezifische Rarität
         detailed_rarity = determine_detailed_rarity(item_name, category)
@@ -1640,27 +1654,29 @@ async def get_role_mentions_for_vulcan(guild):
     seed_roles = []
     gear_roles = []
     
-    # Seeds Rollen (alle Seltenheiten)
-    seed_categories = [
-        "Alle Seeds", "Prismatic Seeds", "Divine Seeds", "Mythical Seeds", 
-        "Legendary Seeds", "Rare Seeds", "Uncommon Seeds", "Common Seeds"
+    # Seeds Rollen (alle Seltenheiten) - mit korrekten Namen
+    seed_role_names = [
+        "seeds_stock_notify", "prismatic_seeds_stock_notify", "divine_seeds_stock_notify", 
+        "mythical_seeds_stock_notify", "legendary_seeds_stock_notify", "rare_seeds_stock_notify", 
+        "uncommon_seeds_stock_notify", "common_seeds_stock_notify"
     ]
     
-    # Gear Rollen (alle Seltenheiten)
-    gear_categories = [
-        "Alle Gear", "Master Sprinkler", "Favorite Tool", "Friendship Pot",
-        "Divine Gear", "Mythical Gear", "Legendary Gear", "Rare Gear", "Common Gear"
+    # Gear Rollen (alle Seltenheiten) - mit korrekten Namen
+    gear_role_names = [
+        "gear_stock_notify", "master_sprinkler_stock_notify", "favorite_tool_stock_notify", 
+        "friendship_pot_stock_notify", "divine_gear_stock_notify", "mythical_gear_stock_notify", 
+        "legendary_gear_stock_notify", "rare_gear_stock_notify", "common_gear_stock_notify"
     ]
     
     # Suche Seeds Rollen
-    for category in seed_categories:
-        role = discord.utils.get(guild.roles, name=category)
+    for role_name in seed_role_names:
+        role = discord.utils.get(guild.roles, name=role_name)
         if role:
             seed_roles.append(role.mention)
     
     # Suche Gear Rollen
-    for category in gear_categories:
-        role = discord.utils.get(guild.roles, name=category)
+    for role_name in gear_role_names:
+        role = discord.utils.get(guild.roles, name=role_name)
         if role:
             gear_roles.append(role.mention)
     
@@ -1671,11 +1687,8 @@ async def delete_old_channels(guild, mode):
     channels_to_delete = []
     
     if mode == "vulcan":
-        # Beim Wechsel zu Vulcan: Lösche separate Channels
-        separate_channels = [
-            "gag-seeds-stock", "gag-gear-stock", "gag-eggs-stock", 
-            "gag-honey-stock", "gag-cosmetics-stock"
-        ]
+        # Beim Wechsel zu Vulcan: Lösche nur Seeds und Gear Channels
+        separate_channels = ["gag-seeds-stock", "gag-gear-stock"]
         channels_to_delete = separate_channels
     else:
         # Beim Wechsel zu eigenem Bot: Lösche kombinierten Channel

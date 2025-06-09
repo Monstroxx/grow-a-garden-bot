@@ -1575,9 +1575,76 @@ async def toggle_vulcan_bot(ctx, action=None):
     else:
         await ctx.send("❌ Ungültige Option. Verwende: `!vulcanbot on` oder `!vulcanbot off`")
 
+async def get_role_mentions_for_vulcan(guild):
+    """Sammelt die Rollen-Mentions für Seeds und Gear für den Vulcan-Bot-Befehl"""
+    seed_roles = []
+    gear_roles = []
+    
+    # Seeds Rollen (alle Seltenheiten)
+    seed_categories = [
+        "Alle Seeds", "Prismatic Seeds", "Divine Seeds", "Mythical Seeds", 
+        "Legendary Seeds", "Rare Seeds", "Uncommon Seeds", "Common Seeds"
+    ]
+    
+    # Gear Rollen (alle Seltenheiten)
+    gear_categories = [
+        "Alle Gear", "Master Sprinkler", "Favorite Tool", "Friendship Pot",
+        "Divine Gear", "Mythical Gear", "Legendary Gear", "Rare Gear", "Common Gear"
+    ]
+    
+    # Suche Seeds Rollen
+    for category in seed_categories:
+        role = discord.utils.get(guild.roles, name=category)
+        if role:
+            seed_roles.append(role.mention)
+    
+    # Suche Gear Rollen
+    for category in gear_categories:
+        role = discord.utils.get(guild.roles, name=category)
+        if role:
+            gear_roles.append(role.mention)
+    
+    return seed_roles, gear_roles
+
+async def delete_old_channels(guild, mode):
+    """Löscht alte Channels beim Modwechsel"""
+    channels_to_delete = []
+    
+    if mode == "vulcan":
+        # Beim Wechsel zu Vulcan: Lösche separate Channels
+        separate_channels = [
+            "gag-seeds-stock", "gag-gear-stock", "gag-eggs-stock", 
+            "gag-honey-stock", "gag-cosmetics-stock"
+        ]
+        channels_to_delete = separate_channels
+    else:
+        # Beim Wechsel zu eigenem Bot: Lösche kombinierten Channel
+        combined_channels = ["gag-seeds-gear-stock"]
+        channels_to_delete = combined_channels
+    
+    deleted_count = 0
+    for channel_name in channels_to_delete:
+        channel = discord.utils.get(guild.channels, name=channel_name)
+        if channel:
+            try:
+                await channel.delete(reason=f"Modwechsel zu {mode}")
+                deleted_count += 1
+                print(f"🗑️ Channel gelöscht: {channel_name}")
+            except Exception as e:
+                print(f"❌ Fehler beim Löschen von {channel_name}: {e}")
+    
+    return deleted_count
 async def setup_vulcan_mode(ctx):
     """Richtet den Vulcan-Bot-Modus ein"""
     guild = ctx.guild
+    
+    # Lösche alte separate Channels
+    deleted_count = await delete_old_channels(guild, "vulcan")
+    if deleted_count > 0:
+        await ctx.send(f"🗑️ {deleted_count} alte separate Channels gelöscht.")
+    
+    # Sammle Rollen für Vulcan-Bot-Befehl
+    seed_roles, gear_roles = await get_role_mentions_for_vulcan(guild)
     
     # Suche oder erstelle combined stock channel
     channel_name = "gag-seeds-gear-stock"
@@ -1597,6 +1664,12 @@ async def setup_vulcan_mode(ctx):
         )
         await ctx.send(f"✅ Kombinierter Channel erstellt: {channel.mention}")
     
+    # Erstelle fertigen Vulcan-Bot-Befehl
+    seed_roles_str = " ".join(seed_roles) if seed_roles else "@Seeds"
+    gear_roles_str = " ".join(gear_roles) if gear_roles else "@Gear"
+    
+    vulcan_command = f"/stockalert-gag {channel.mention} seed:{seed_roles_str} gear:{gear_roles_str}"
+    
     # Sende Vulcan Bot Setup-Nachricht
     embed = discord.Embed(
         title="🤖 Vulcan Bot Modus aktiviert",
@@ -1604,18 +1677,13 @@ async def setup_vulcan_mode(ctx):
         color=discord.Color.gold()
     )
     embed.add_field(
-        name="📍 Setup für Vulcan Bot:",
-        value=f"Führe diesen Befehl im {channel.mention} aus:",
+        name="📍 Fertiger Befehl:",
+        value=f"Kopiere und führe diesen Befehl aus:",
         inline=False
     )
     embed.add_field(
         name="🌱⚒️ Seeds & Gear Setup:",
-        value="`/stockalert-gag channel_here seed:@rolle gear:@rolle`",
-        inline=False
-    )
-    embed.add_field(
-        name="📋 Beispiel:",
-        value="`/stockalert-gag #gag-seeds-gear-stock seed:@Seeds-Notify gear:@Gear-Notify`",
+        value=f"```{vulcan_command}```",
         inline=False
     )
     embed.add_field(
@@ -1623,19 +1691,48 @@ async def setup_vulcan_mode(ctx):
         value="• **Vulcan Bot:** Übernimmt Seeds & Gear zusammen\n• **Unser Bot:** Verwaltet weiterhin Eggs, Honey, Cosmetics getrennt\n• **Rückwechsel:** `!vulcanbot off` für separate Channels",
         inline=False
     )
+    embed.add_field(
+        name="📋 Enthalten:",
+        value=f"**Seeds:** {len(seed_roles)} Rollen\n**Gear:** {len(gear_roles)} Rollen",
+        inline=True
+    )
     
     await ctx.send(embed=embed)
     
-    # Sende den tatsächlichen Befehl in den Channel
-    await channel.send("🤖 **Vulcan Bot Setup - Führe diesen Befehl aus:**")
+    # Sende den fertigen Befehl in den Channel
+    await channel.send("🤖 **Vulcan Bot Setup - Kopiere diesen fertigen Befehl:**")
     await asyncio.sleep(1)
-    await channel.send("/stockalert-gag channel_here seed:@rolle gear:@rolle")
+    await channel.send(f"```{vulcan_command}```")
     await asyncio.sleep(1)
-    await channel.send("*(Ersetze `channel_here` und `@rolle` mit euren gewünschten Einstellungen)*")
+    
+    # Sende auch die Rollen-Liste zur Übersicht
+    if seed_roles or gear_roles:
+        roles_embed = discord.Embed(
+            title="📋 Verwendete Rollen",
+            color=discord.Color.blue()
+        )
+        if seed_roles:
+            roles_embed.add_field(
+                name="🌱 Seeds Rollen:",
+                value="\n".join(seed_roles[:10]),  # Erste 10 zeigen
+                inline=True
+            )
+        if gear_roles:
+            roles_embed.add_field(
+                name="⚒️ Gear Rollen:",
+                value="\n".join(gear_roles[:10]),  # Erste 10 zeigen
+                inline=True
+            )
+        await channel.send(embed=roles_embed)
 
 async def setup_own_bot_mode(ctx):
     """Richtet den eigenen Bot-Modus ein (separate Channels)"""
     guild = ctx.guild
+    
+    # Lösche alte kombinierte Channels
+    deleted_count = await delete_old_channels(guild, "own")
+    if deleted_count > 0:
+        await ctx.send(f"🗑️ {deleted_count} alte kombinierte Channels gelöscht.")
     
     embed = discord.Embed(
         title="🤖 Eigener Bot-Modus aktiviert",
@@ -1664,6 +1761,17 @@ async def setup_own_bot_mode(ctx):
     )
     
     await ctx.send(embed=embed)
+    
+    # Auto-Setup ausführen
+    await ctx.send("🔄 Starte automatisches Setup...")
+    await asyncio.sleep(2)
+    
+    # Führe channelsetup automatisch aus
+    await setup_channels(ctx)
+    await asyncio.sleep(2)
+    
+    # Führe resetroles automatisch aus  
+    await reset_role_messages(ctx)
 
 @bot.command(name='testparse')
 async def test_parsing(ctx):

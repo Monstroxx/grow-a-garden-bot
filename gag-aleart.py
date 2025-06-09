@@ -316,25 +316,24 @@ class CosmeticsView(discord.ui.View):
 async def send_category_update(guild, category, items):
     """Sendet ein Stock-Update für eine Kategorie"""
     try:
-        # Finde den entsprechenden Channel - probiere verschiedene Namenskonventionen
-        possible_channel_names = [
-            f"{category.lower()}-stock",      # gear-stock
-            f"{category.lower()}-updates",    # gear-updates  
-            f"{category.lower()}",            # gear
-            f"stock-{category.lower()}",      # stock-gear
-            f"{category.lower()}_stock",      # gear_stock
-        ]
+        # Finde den entsprechenden Channel - verwende den Channel aus CATEGORY_CHANNELS
+        channel_mapping = {
+            'Seeds': 'seeds-updates',
+            'Gear': 'gear-updates', 
+            'Eggs': 'eggs-updates',
+            'Honey': 'honey-updates',
+            'Cosmetics': 'cosmetics-updates'
+        }
         
-        channel = None
-        for channel_name in possible_channel_names:
-            channel = discord.utils.get(guild.channels, name=channel_name)
-            if channel:
-                break
+        channel_name = channel_mapping.get(category)
+        if not channel_name:
+            print(f"⚠️ Keine Channel-Mapping für Kategorie {category}")
+            return
+            
+        channel = discord.utils.get(guild.channels, name=channel_name)
         
         if not channel:
-            print(f"⚠️ Kein passender Channel gefunden für {category} in Guild {guild.name}")
-            print(f"   Versucht: {', '.join(possible_channel_names)}")
-            print(f"   Verfügbare Channels: {[ch.name for ch in guild.channels if isinstance(ch, discord.TextChannel)]}")
+            print(f"⚠️ Channel '{channel_name}' nicht gefunden in Guild {guild.name}")
             return
         
         # Kategorie-spezifische Konfiguration

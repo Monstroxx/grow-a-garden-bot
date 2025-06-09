@@ -639,8 +639,8 @@ async def send_category_stock_update(category, items):
     
     # Bestimme Channel basierend auf Modus
     if using_vulcan and category in ['Seeds', 'Gear']:
-        # Seeds und Gear gehen zum kombinierten Channel (falls doch mal benötigt für Debugging)
-        channel_name = "gag-seeds-gear-stock"
+        # Seeds und Gear gehen zum kombinierten Channel
+        channel_name = "gag-seed-gear-alert"
     elif using_vulcan and category in ['Eggs', 'Honey', 'Cosmetics']:
         # Andere Kategorien weiterhin separate Channels
         channel_name = f"gag-{category.lower()}-stock"
@@ -1692,7 +1692,7 @@ async def delete_old_channels(guild, mode):
         channels_to_delete = separate_channels
     else:
         # Beim Wechsel zu eigenem Bot: Lösche kombinierten Channel
-        combined_channels = ["gag-seeds-gear-stock"]
+        combined_channels = ["gag-seed-gear-alert"]
         channels_to_delete = combined_channels
     
     deleted_count = 0
@@ -1716,11 +1716,8 @@ async def setup_vulcan_mode(ctx):
     if deleted_count > 0:
         await ctx.send(f"🗑️ {deleted_count} alte separate Channels gelöscht.")
     
-    # Sammle Rollen für Vulcan-Bot-Befehl
-    seed_roles, gear_roles = await get_role_mentions_for_vulcan(guild)
-    
     # Suche oder erstelle combined stock channel
-    channel_name = "gag-seeds-gear-stock"
+    channel_name = "gag-seed-gear-alert"
     channel = discord.utils.get(guild.channels, name=channel_name)
     
     if not channel:
@@ -1735,13 +1732,10 @@ async def setup_vulcan_mode(ctx):
             category=category,
             topic="Seeds & Gear Stock Alerts (Vulcan Bot)"
         )
-        await ctx.send(f"✅ Kombinierter Channel erstellt: {channel.mention}")
+        await ctx.send(f"✅ Channel erstellt: {channel.mention}")
     
-    # Erstelle fertigen Vulcan-Bot-Befehl
-    seed_roles_str = " ".join(seed_roles) if seed_roles else "@Seeds"
-    gear_roles_str = " ".join(gear_roles) if gear_roles else "@Gear"
-    
-    vulcan_command = f"/stockalert-gag {channel.mention} seed:{seed_roles_str} gear:{gear_roles_str}"
+    # Erstelle detaillierten Vulcan-Bot-Befehl mit allen Früchten und Gear
+    vulcan_command = await generate_vulcan_stockalert_command(guild, channel)
     
     # Sende Vulcan Bot Setup-Nachricht
     embed = discord.Embed(
@@ -1755,48 +1749,102 @@ async def setup_vulcan_mode(ctx):
         inline=False
     )
     embed.add_field(
-        name="🌱⚒️ Seeds & Gear Setup:",
-        value=f"```{vulcan_command}```",
-        inline=False
-    )
-    embed.add_field(
         name="🔧 Info:",
         value="• **Vulcan Bot:** Übernimmt Seeds & Gear zusammen\n• **Unser Bot:** Verwaltet weiterhin Eggs, Honey, Cosmetics getrennt\n• **Rückwechsel:** `!vulcanbot off` für separate Channels",
         inline=False
     )
-    embed.add_field(
-        name="📋 Enthalten:",
-        value=f"**Seeds:** {len(seed_roles)} Rollen\n**Gear:** {len(gear_roles)} Rollen",
-        inline=True
-    )
     
     await ctx.send(embed=embed)
     
-    # Sende den fertigen Befehl in den Channel
+    # Sende den fertigen Befehl in den Channel (aufgeteilt wegen Discord-Limits)
     await channel.send("🤖 **Vulcan Bot Setup - Kopiere diesen fertigen Befehl:**")
     await asyncio.sleep(1)
-    await channel.send(f"```{vulcan_command}```")
-    await asyncio.sleep(1)
     
-    # Sende auch die Rollen-Liste zur Übersicht
-    if seed_roles or gear_roles:
-        roles_embed = discord.Embed(
-            title="📋 Verwendete Rollen",
-            color=discord.Color.blue()
-        )
-        if seed_roles:
-            roles_embed.add_field(
-                name="🌱 Seeds Rollen:",
-                value="\n".join(seed_roles[:10]),  # Erste 10 zeigen
-                inline=True
-            )
-        if gear_roles:
-            roles_embed.add_field(
-                name="⚒️ Gear Rollen:",
-                value="\n".join(gear_roles[:10]),  # Erste 10 zeigen
-                inline=True
-            )
-        await channel.send(embed=roles_embed)
+    # Command ist zu lang für eine Nachricht, also aufteilen
+    await channel.send("```")
+    await channel.send(vulcan_command)
+    await channel.send("```")
+    
+    await asyncio.sleep(1)
+    await channel.send("💡 **Hinweis:** Falls der Befehl zu lang ist, verwende mehrere `/stockalert-gag` Befehle für verschiedene Item-Gruppen.")
+
+async def generate_vulcan_stockalert_command(guild, channel):
+    """Generiert den kompletten /stockalert-gag Befehl mit allen Früchten und Gear"""
+    
+    # Mapping: Frucht/Gear -> Rolle
+    fruit_role_mapping = {
+        # Seeds/Früchte basierend auf determine_detailed_rarity
+        'grape': 'divine_seeds_stock_notify',
+        'mushroom': 'divine_seeds_stock_notify', 
+        'pepper': 'divine_seeds_stock_notify',
+        'cacao': 'divine_seeds_stock_notify',
+        'beanstalk': 'prismatic_seeds_stock_notify',
+        'coconut': 'mythical_seeds_stock_notify',
+        'cactus': 'mythical_seeds_stock_notify',
+        'dragon fruit': 'mythical_seeds_stock_notify',
+        'mango': 'mythical_seeds_stock_notify',
+        'pineapple': 'mythical_seeds_stock_notify',
+        'peach': 'mythical_seeds_stock_notify',
+        'banana': 'mythical_seeds_stock_notify',
+        'watermelon': 'legendary_seeds_stock_notify',
+        'pumpkin': 'legendary_seeds_stock_notify',
+        'apple': 'legendary_seeds_stock_notify',
+        'bamboo': 'legendary_seeds_stock_notify',
+        'tomato': 'rare_seeds_stock_notify',
+        'corn': 'rare_seeds_stock_notify',
+        'daffodil': 'rare_seeds_stock_notify',
+        'blueberry': 'uncommon_seeds_stock_notify',
+        'orange tulip': 'uncommon_seeds_stock_notify',
+        'carrot': 'common_seeds_stock_notify',
+        'strawberry': 'common_seeds_stock_notify'
+    }
+    
+    gear_role_mapping = {
+        'master sprinkler': 'master_sprinkler_stock_notify',
+        'favorite tool': 'favorite_tool_stock_notify', 
+        'friendship pot': 'friendship_pot_stock_notify',
+        'harvest tool': 'divine_gear_stock_notify',
+        'lightning rod': 'mythical_gear_stock_notify',
+        'godly sprinkler': 'mythical_gear_stock_notify',
+        'advanced sprinkler': 'legendary_gear_stock_notify',
+        'night staff': 'legendary_gear_stock_notify',
+        'star caller': 'legendary_gear_stock_notify',
+        'basic sprinkler': 'rare_gear_stock_notify',
+        'trowel': 'common_gear_stock_notify',
+        'watering can': 'common_gear_stock_notify',
+        'recall wrench': 'common_gear_stock_notify'
+    }
+    
+    # Baue den Command zusammen
+    command_parts = [f"/stockalert-gag seeds stockchannel:{channel.mention}"]
+    
+    # Seeds/Früchte hinzufügen
+    for fruit, role_name in fruit_role_mapping.items():
+        role = discord.utils.get(guild.roles, name=role_name)
+        if role:
+            # Ersetze Leerzeichen in Frucht-Namen durch Underscores für Command-Format
+            fruit_clean = fruit.replace(' ', '_').lower()
+            command_parts.append(f"{fruit_clean}:{role.mention}")
+    
+    # Gear hinzufügen  
+    for gear, role_name in gear_role_mapping.items():
+        role = discord.utils.get(guild.roles, name=role_name)
+        if role:
+            # Ersetze Leerzeichen in Gear-Namen durch Underscores für Command-Format
+            gear_clean = gear.replace(' ', '_').lower()
+            command_parts.append(f"{gear_clean}:{role.mention}")
+    
+    # Kombiniere alles zu einem Command (Discord hat 2000 Zeichen Limit)
+    full_command = " ".join(command_parts)
+    
+    # Falls zu lang, kürze ab und weise darauf hin
+    if len(full_command) > 1900:
+        # Nimm nur die ersten Items
+        shortened_parts = command_parts[:20]  # Erste 20 Teile
+        full_command = " ".join(shortened_parts)
+        full_command += "\n# (Befehl gekürzt - erstelle weitere Befehle für restliche Items)"
+    
+    return full_command
 
 async def setup_own_bot_mode(ctx):
     """Richtet den eigenen Bot-Modus ein (separate Channels)"""

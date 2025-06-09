@@ -2317,7 +2317,13 @@ async def download_missing_emojis_for_guild(guild):
 async def stock_monitoring_task():
     """Automatische Stock-Überwachung alle 5 Minuten"""
     try:
-        print("🔄 Stock-Check gestartet...")
+        # Warte ein paar Sekunden um exakt auf 5-Minuten-Intervalle zu synchronisieren
+        now = datetime.now()
+        seconds_past_minute = now.second
+        if seconds_past_minute < 10:  # Warte bis zu 10 Sekunden für Sync
+            await asyncio.sleep(10 - seconds_past_minute)
+        
+        print(f"🔄 Stock-Check gestartet um {datetime.now().strftime('%H:%M:%S')}...")
         current_stock = await fetch_stock_data()
         
         if not current_stock:
@@ -2326,60 +2332,101 @@ async def stock_monitoring_task():
         
         global last_stock_data
         
-        # Vergleiche mit vorherigen Daten
-        changed_categories = {}
-        
+        # Verteile aktuelle Items nach Kategorien
+        current_items_by_category = {}
         for item_key, item_data in current_stock.items():
             category = item_data['category']
+            if category not in current_items_by_category:
+                current_items_by_category[category] = []
+            current_items_by_category[category].append((item_key, item_data))
+        
+        # Verteile vorherige Items nach Kategorien
+        previous_items_by_category = {}
+        for item_key, item_data in last_stock_data.items():
+            category = item_data['category']
+            if category not in previous_items_by_category:
+                previous_items_by_category[category] = []
+            previous_items_by_category[category].append((item_key, item_data))
+        
+        # Prüfe jede Kategorie auf Änderungen
+        for category in current_items_by_category.keys():
+            current_items = current_items_by_category[category]
+            previous_items = previous_items_by_category.get(category, [])
             
-            # Prüfe ob Item neu ist oder sich die Quantity geändert hat
-            is_new_or_changed = False
+            # Vergleiche die Kategorien (Items oder Quantities)
+            has_changes = False
             
-            if item_key not in last_stock_data:
-                # Komplett neues Item
-                is_new_or_changed = True
-                print(f"🆕 Neues Item: {item_data.get('display_name', item_key)}")
-            else:
-                # Prüfe auf Quantity-Änderung
-                old_quantity = last_stock_data[item_key].get('quantity', 0)
-                new_quantity = item_data.get('quantity', 0)
-                if old_quantity != new_quantity:
-                    is_new_or_changed = True
-                    print(f"📊 Quantity geändert: {item_data.get('display_name', item_key)} ({old_quantity} → {new_quantity})")
+            # Prüfe ob sich die Item-Liste geändert hat
+            current_item_keys = set(item[0] for item in current_items)
+            previous_item_keys = set(item[0] for item in previous_items)
             
-            if is_new_or_changed:
-                if category not in changed_categories:
-                    changed_categories[category] = []
-                # Sammle ALLE Items der Kategorie, nicht nur die neuen!
-                
-        # Für jede geänderte Kategorie: Sammle ALLE verfügbaren Items
-        for changed_category in changed_categories.keys():
-            all_items_in_category = []
-            for item_key, item_data in current_stock.items():
-                if item_data['category'] == changed_category:
-                    all_items_in_category.append((item_key, item_data))
+            if current_item_keys != previous_item_keys:
+                has_changes = True
+                added_items = current_item_keys - previous_item_keys
+                removed_items = previous_item_keys - current_item_keys
+                if added_items:
+                    print(f"🆕 {category}: Neue Items: {list(added_items)}")
+                if removed_items:
+                    print(f"🗑️ {category}: Entfernte Items: {list(removed_items)}")
             
-            if all_items_in_category:
-                print(f"📨 Sende Update für {changed_category}: {len(all_items_in_category)} Items")
+            # Prüfe auf Quantity-Änderungen
+            if not has_changes:
+                for current_item_key, current_item_data in current_items:
+                    for previous_item_key, previous_item_data in previous_items:
+                        if current_item_key == previous_item_key:
+                            current_qty = current_item_data.get('quantity', 0)
+                            previous_qty = previous_item_data.get('quantity', 0)
+                            if current_qty != previous_qty:
+                                has_changes = True
+                                item_display_name = current_item_data.get('display_name', current_item_key)
+                                print(f"📊 {category}: {item_display_name} Quantity: {previous_qty} → {current_qty}")
+                                break
+                    if has_changes:
+                        break
+            
+            # Wenn Änderungen erkannt: Sende Update mit ALLEN Items der Kategorie
+            if has_changes:
+                print(f"📨 Sende {category} Update mit {len(current_items)} Items")
                 
                 # Sende Update an alle Guilds
                 for guild in bot.guilds:
                     try:
-                        await send_category_update(guild, changed_category, all_items_in_category)
-                        await asyncio.sleep(1)  # Kurze Pause zwischen Guilds
+                        await send_category_update(guild, category, current_items)
+                        await asyncio.sleep(0.5)  # Kurze Pause zwischen Guilds
                     except Exception as e:
                         print(f"❌ Fehler beim Senden an Guild {guild.name}: {e}")
         
         # Aktualisiere gespeicherte Daten
+        last_stock_data.clear()
         last_stock_data.update(current_stock)
         
-        if changed_categories:
-            print(f"✅ Stock-Check abgeschlossen: {len(changed_categories)} Kategorien aktualisiert")
+        changed_count = len([cat for cat in current_items_by_category.keys() 
+                           if cat in previous_items_by_category and 
+                           current_items_by_category[cat] != previous_items_by_category.get(cat, [])])
+        
+        if changed_count > 0:
+            print(f"✅ Stock-Check abgeschlossen: {changed_count} Kategorie(n) hatten Änderungen")
         else:
-            print("ℹ️ Stock-Check abgeschlossen: Keine Änderungen")
+            print("ℹ️ Stock-Check abgeschlossen: Keine Änderungen erkannt")
             
     except Exception as e:
         print(f"❌ Fehler beim Stock-Monitoring: {e}")
+
+@stock_monitoring_task.before_loop
+async def before_stock_monitoring():
+    """Synchronisiert den Task auf 5-Minuten-Intervalle"""
+    await bot.wait_until_ready()
+    
+    # Warte bis zum nächsten 5-Minuten-Intervall
+    now = datetime.now()
+    minutes_to_next_interval = 5 - (now.minute % 5)
+    seconds_to_next_interval = (minutes_to_next_interval * 60) - now.second
+    
+    # Zusätzlich 10 Sekunden Delay für Stabilität
+    total_wait = seconds_to_next_interval + 10
+    
+    print(f"⏰ Synchronisiere Stock-Monitoring... Warte {total_wait} Sekunden bis zum nächsten 5-Minuten-Intervall")
+    await asyncio.sleep(total_wait)
 
 @bot.event
 async def on_ready():

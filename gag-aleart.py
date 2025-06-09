@@ -311,7 +311,7 @@ class CosmeticsView(discord.ui.View):
         self.add_item(CosmeticsDropdown())
 
 async def fetch_stock_data():
-    """Holt die aktuellen Stock-Daten von der Website"""
+    """Holt die aktuellen Stock-Daten von der Website mit universeller Erkennung"""
     try:
         async with aiohttp.ClientSession() as session:
             headers = {
@@ -324,150 +324,112 @@ async def fetch_stock_data():
                     
                     stock_data = {}
                     
-                    # Verbesserte Shop-Kategorien-Erkennung
-                    shop_categories = {
-                        'GEAR STOCK': 'Gear',
-                        'EGG STOCK': 'Eggs', 
-                        'SEEDS STOCK': 'Seeds',
-                        'HONEY STOCK': 'Honey',
-                        'COSMETICS STOCK': 'Cosmetics'
+                    print("🔍 Starte universelle Stock-Erkennung...")
+                    
+                    # Universelle Methode: Finde alle li-Elemente mit Items
+                    all_items = soup.find_all('li', class_=lambda x: x and 'bg-gray-900' in str(x))
+                    print(f"📦 {len(all_items)} potentielle Items gefunden")
+                    
+                    # Bestimme Kategorie basierend auf Position/Context
+                    categories_found = {
+                        'Gear': [],
+                        'Eggs': [],
+                        'Seeds': [],
+                        'Honey': [],
+                        'Cosmetics': []
                     }
                     
-                    # Suche nach allen Stock-Sektionen (flexiblere Erkennung)
-                    for category_name, category_type in shop_categories.items():
-                        print(f"🔍 Suche nach {category_name}...")
-                        
-                        # Mehrere Suchmethoden für bessere Erkennung
-                        header = None
-                        
-                        # Methode 1: Direkte h2-Suche
-                        header = soup.find('h2', string=category_name)
-                        
-                        # Methode 2: h2 mit Text-Inhalten
-                        if not header:
-                            headers = soup.find_all('h2')
-                            for h in headers:
-                                if category_name in h.get_text(strip=True):
-                                    header = h
+                    for item in all_items:
+                        try:
+                            # Extrahiere Item-Daten
+                            item_name = None
+                            quantity = 1
+                            img_src = ''
+                            category = 'Unknown'
+                            
+                            # Methode 1: Span-Text analysieren
+                            spans = item.find_all('span')
+                            for span in spans:
+                                span_text = span.get_text(strip=True)
+                                if span_text and not span_text.startswith('x') and len(span_text) > 2:
+                                    # Checke ob es eine Quantity-Angabe gibt
+                                    if ' x' in span_text:
+                                        parts = span_text.split(' x')
+                                        item_name = parts[0].strip()
+                                        if len(parts) > 1:
+                                            try:
+                                                quantity = int(parts[1].strip())
+                                            except:
+                                                quantity = 1
+                                    else:
+                                        item_name = span_text
                                     break
-                        
-                        # Methode 3: Suche in div-Klassen und Text
-                        if not header:
-                            divs = soup.find_all('div')
-                            for div in divs:
-                                text = div.get_text(strip=True)
-                                if category_name in text and any(cls in str(div.get('class', [])) for cls in ['font-bold', 'text-xl', 'mb-2']):
-                                    header = div
-                                    break
-                        
-                        if header:
-                            print(f"✅ {category_name} Header gefunden")
                             
-                            # Finde Container mit Items
-                            container = header.find_parent('div')
-                            if not container:
-                                container = header
+                            # Methode 2: Suche nach Quantity in gray spans
+                            if item_name:
+                                gray_spans = item.find_all('span', class_=lambda x: x and 'gray' in str(x))
+                                for gray_span in gray_spans:
+                                    gray_text = gray_span.get_text(strip=True)
+                                    if gray_text.startswith('x'):
+                                        try:
+                                            quantity = int(gray_text[1:])
+                                        except:
+                                            quantity = 1
+                                        break
                             
-                            # Suche nach ul/li Struktur oder direkt nach Items
-                            items = []
+                            # Methode 3: Image alt-text als Fallback
+                            if not item_name:
+                                img = item.find('img')
+                                if img:
+                                    img_src = img.get('src', '')
+                                    alt_text = img.get('alt', '').strip()
+                                    if alt_text and len(alt_text) > 2:
+                                        item_name = alt_text
                             
-                            # Methode 1: ul > li Struktur
-                            ul = container.find('ul')
-                            if ul:
-                                items = ul.find_all('li')
+                            # Methode 4: Volltext-Analyse als letzter Fallback
+                            if not item_name:
+                                full_text = item.get_text(strip=True)
+                                # Entferne bekannte Störtexte
+                                clean_text = full_text.replace('UPDATES IN:', '').strip()
+                                # Suche nach Pattern "Name xNumber"
+                                import re
+                                match = re.search(r'^(.+?)\s+x(\d+)$', clean_text)
+                                if match:
+                                    item_name = match.group(1).strip()
+                                    quantity = int(match.group(2))
+                                elif clean_text and len(clean_text) > 2 and not clean_text.isdigit():
+                                    item_name = clean_text
                             
-                            # Methode 2: Direkte li-Suche im Container
-                            if not items:
-                                items = container.find_all('li')
-                            
-                            # Methode 3: div-Items mit bg-gray-900 Klasse
-                            if not items:
-                                items = container.find_all('div', class_=lambda x: x and 'bg-gray-900' in x)
-                            
-                            print(f"📦 {len(items)} Items gefunden in {category_name}")
-                            
-                            for item in items:
-                                try:
-                                    # Flexiblere Item-Extraktion
-                                    item_name = None
-                                    quantity = 1
-                                    img_src = ''
+                            if item_name:
+                                # Bestimme Kategorie durch Kontext-Analyse
+                                category = determine_item_category(item, item_name, soup)
+                                
+                                # Bereinige Item-Namen
+                                item_name = clean_item_name(item_name)
+                                
+                                if item_name and category != 'Unknown':
+                                    categories_found[category].append(item_name)
                                     
-                                    # Suche nach Bild
-                                    img = item.find('img')
-                                    if img:
-                                        img_src = img.get('src', '')
-                                        # Fallback: alt-Text als Item-Name
-                                        if not item_name:
-                                            item_name = img.get('alt', '').strip()
-                                    
-                                    # Suche nach span mit Item-Namen
-                                    spans = item.find_all('span')
-                                    for span in spans:
-                                        span_text = span.get_text(strip=True)
-                                        if span_text and not span_text.startswith('x') and 'x' in span_text:
-                                            # Format: "Item Name x3"
-                                            parts = span_text.split(' x')
-                                            if len(parts) >= 2:
-                                                item_name = parts[0].strip()
-                                                try:
-                                                    quantity = int(parts[1].strip())
-                                                except:
-                                                    quantity = 1
-                                            break
-                                        elif span_text and not span_text.startswith('x') and len(span_text) > 2:
-                                            # Nur Item-Name, Anzahl separat suchen
-                                            item_name = span_text
-                                            
-                                            # Suche nach Anzahl in gray-Text
-                                            gray_spans = item.find_all('span', class_=lambda x: x and 'gray' in str(x))
-                                            for gray_span in gray_spans:
-                                                gray_text = gray_span.get_text(strip=True)
-                                                if gray_text.startswith('x'):
-                                                    try:
-                                                        quantity = int(gray_text[1:])
-                                                    except:
-                                                        quantity = 1
-                                                    break
-                                            break
-                                    
-                                    # Fallback: Suche nach Text im gesamten Item
-                                    if not item_name:
-                                        full_text = item.get_text(strip=True)
-                                        # Entferne bekannte Störelemente
-                                        clean_text = full_text.replace('UPDATES IN:', '').strip()
-                                        if clean_text and len(clean_text) > 2 and not clean_text.startswith('x'):
-                                            if ' x' in clean_text:
-                                                parts = clean_text.split(' x')
-                                                item_name = parts[0].strip()
-                                                if len(parts) > 1:
-                                                    try:
-                                                        quantity = int(parts[1].strip())
-                                                    except:
-                                                        quantity = 1
-                                            else:
-                                                item_name = clean_text
-                                    
-                                    if item_name and item_name not in ['UPDATES IN', 'STOCK']:
-                                        # Bereinige Item-Namen
-                                        item_name = item_name.replace('\n', ' ').strip()
-                                        
-                                        stock_data[item_name] = {
-                                            'available': True,
-                                            'category': category_type,
-                                            'quantity': quantity,
-                                            'image': img_src,
-                                            'timestamp': datetime.now()
-                                        }
-                                        print(f"  ✅ {item_name} x{quantity}")
-                                    
-                                except Exception as e:
-                                    print(f"❌ Fehler beim Parsen von Item in {category_name}: {e}")
-                                    continue
-                        else:
-                            print(f"❌ {category_name} Header nicht gefunden")
+                                    stock_data[item_name] = {
+                                        'available': True,
+                                        'category': category,
+                                        'quantity': quantity,
+                                        'image': img_src,
+                                        'timestamp': datetime.now()
+                                    }
+                                    print(f"  ✅ {item_name} ({category}) x{quantity}")
+                                
+                        except Exception as e:
+                            print(f"❌ Fehler beim Parsen von Item: {e}")
+                            continue
                     
-                    print(f"🎯 Stock-Daten geladen: {len(stock_data)} Items total")
+                    # Zeige Zusammenfassung
+                    print(f"\n📊 Stock-Zusammenfassung:")
+                    for cat, items in categories_found.items():
+                        if items:
+                            print(f"  {cat}: {len(items)} Items")
+                    
+                    print(f"\n🎯 Total: {len(stock_data)} Items erkannt")
                     return stock_data
                 else:
                     print(f"❌ HTTP Error: {response.status}")
@@ -475,6 +437,104 @@ async def fetch_stock_data():
     except Exception as e:
         print(f"❌ Fehler beim Abrufen der Stock-Daten: {e}")
         return None
+
+def determine_item_category(item_element, item_name, soup):
+    """Bestimmt die Kategorie eines Items durch Kontext-Analyse"""
+    try:
+        # Methode 1: Suche nach nahegelegenen Header-Texten
+        current = item_element
+        for _ in range(10):  # Max 10 Ebenen nach oben
+            parent = current.parent if current else None
+            if not parent:
+                break
+            
+            # Suche nach h2 mit Kategorie-Namen
+            h2_elements = parent.find_all('h2')
+            for h2 in h2_elements:
+                h2_text = h2.get_text(strip=True).upper()
+                if 'GEAR' in h2_text:
+                    return 'Gear'
+                elif 'EGG' in h2_text:
+                    return 'Eggs'
+                elif 'SEED' in h2_text:
+                    return 'Seeds'
+                elif 'HONEY' in h2_text:
+                    return 'Honey'
+                elif 'COSMETIC' in h2_text:
+                    return 'Cosmetics'
+            
+            current = parent
+        
+        # Methode 2: Analyse des Item-Namens selbst
+        item_lower = item_name.lower()
+        
+        # Gear-Keywords
+        gear_keywords = ['tool', 'sprinkler', 'watering', 'can', 'trowel', 'wrench', 'harvest']
+        if any(keyword in item_lower for keyword in gear_keywords):
+            return 'Gear'
+        
+        # Egg-Keywords
+        egg_keywords = ['egg']
+        if any(keyword in item_lower for keyword in egg_keywords):
+            return 'Eggs'
+        
+        # Seeds-Keywords
+        seed_keywords = ['carrot', 'strawberry', 'blueberry', 'tulip', 'tomato', 'watermelon', 'corn', 'daffodil']
+        if any(keyword in item_lower for keyword in seed_keywords):
+            return 'Seeds'
+        
+        # Honey-Keywords
+        honey_keywords = ['honey', 'flower', 'lavender', 'bee', 'comb', 'torch']
+        if any(keyword in item_lower for keyword in honey_keywords):
+            return 'Honey'
+        
+        # Cosmetics-Keywords
+        cosmetic_keywords = ['gnome', 'crate', 'log', 'torch', 'tile', 'canopy', 'wood', 'axe', 'stump']
+        if any(keyword in item_lower for keyword in cosmetic_keywords):
+            return 'Cosmetics'
+        
+        # Methode 3: Positions-basierte Erkennung
+        # Finde alle Geschwister-Items und bestimme Position
+        all_siblings = soup.find_all('li', class_=lambda x: x and 'bg-gray-900' in str(x))
+        try:
+            item_index = all_siblings.index(item_element)
+            # Grobe Schätzung basierend auf typischer Layout-Reihenfolge
+            if item_index < 5:
+                return 'Gear'
+            elif item_index < 8:
+                return 'Eggs'
+            elif item_index < 14:
+                return 'Seeds'
+            elif item_index < 18:
+                return 'Honey'
+            else:
+                return 'Cosmetics'
+        except:
+            pass
+        
+        return 'Unknown'
+        
+    except Exception as e:
+        print(f"❌ Fehler bei Kategorie-Bestimmung: {e}")
+        return 'Unknown'
+
+def clean_item_name(name):
+    """Bereinigt Item-Namen von Störzeichen und Texten"""
+    if not name:
+        return ""
+    
+    # Entferne häufige Störtexte
+    name = name.replace('UPDATES IN:', '').strip()
+    name = name.replace('STOCK', '').strip()
+    
+    # Entferne newlines und extra spaces
+    name = ' '.join(name.split())
+    
+    # Entferne quantity am Ende falls vorhanden
+    import re
+    name = re.sub(r'\s+x\d+$', '', name)
+    
+    return name.strip()
 
 @tasks.loop(minutes=5)
 async def check_stock():

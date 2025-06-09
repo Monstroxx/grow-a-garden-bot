@@ -29,6 +29,9 @@ CATEGORY_CHANNELS = {
 # Logging einrichten
 logging.basicConfig(level=logging.INFO)
 
+# Globale Variable für Stock-Speicher
+last_stock_data = {}
+
 # Bot Setup
 intents = discord.Intents.default()
 intents.message_content = True
@@ -2066,6 +2069,85 @@ async def test_parsing(ctx):
             await ctx.send(f"❌ Fehler beim Erstellen der Rolle: {e}")
     else:
         await ctx.send(f"❌ Rolle `{role_key}` nicht gefunden! Verwende `!createrole` ohne Parameter für eine Liste.")
+
+@bot.command(name='resetstock')
+@commands.has_permissions(administrator=True)
+async def reset_stock_memory(ctx):
+    """Setzt den Stock-Speicher zurück, damit alle Items als neu erkannt werden"""
+    global last_stock_data
+    
+    # Lösche gespeicherte Stock-Daten
+    last_stock_data.clear()
+    
+    embed = discord.Embed(
+        title="🔄 Stock-Speicher zurückgesetzt",
+        description="Alle Items werden beim nächsten Update als neu erkannt.",
+        color=discord.Color.orange()
+    )
+    embed.add_field(
+        name="📋 Info:",
+        value="• Nächster Stock-Check zeigt alle verfügbaren Items\n• Keine vorherigen Daten werden berücksichtigt\n• Alle Kategorien werden aktualisiert",
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
+    
+    # Triggere sofortigen Stock-Check
+    await ctx.send("🔄 Starte sofortigen Stock-Check...")
+    current_stock = await fetch_stock_data()
+    
+    if current_stock:
+        # Setze alle Items als "neu"
+        new_items_by_category = {}
+        for item_key, item_data in current_stock.items():
+            category = item_data['category']
+            if category not in new_items_by_category:
+                new_items_by_category[category] = []
+            new_items_by_category[category].append((item_key, item_data))
+        
+        # Sende Updates für alle Kategorien
+        await ctx.send(f"📊 Gefunden: {len(current_stock)} Items in {len(new_items_by_category)} Kategorien")
+        
+        for category, items in new_items_by_category.items():
+            if items:
+                await send_category_update(ctx.guild, category, items)
+                await asyncio.sleep(1)  # Kurze Pause zwischen Updates
+        
+        # Speichere aktuellen Stock für zukünftige Vergleiche
+        last_stock_data.update(current_stock)
+        
+        await ctx.send("✅ Stock-Reset und Update abgeschlossen!")
+    else:
+        await ctx.send("❌ Fehler beim Abrufen der aktuellen Stock-Daten")
+
+@bot.command(name='forceupdate')
+@commands.has_permissions(administrator=True)
+async def force_stock_update(ctx):
+    """Erzwingt ein Stock-Update für alle verfügbaren Items (ohne Reset)"""
+    await ctx.send("🔄 Erzwinge Stock-Update...")
+    
+    current_stock = await fetch_stock_data()
+    
+    if current_stock:
+        # Verteile alle Items nach Kategorien
+        items_by_category = {}
+        for item_key, item_data in current_stock.items():
+            category = item_data['category']
+            if category not in items_by_category:
+                items_by_category[category] = []
+            items_by_category[category].append((item_key, item_data))
+        
+        await ctx.send(f"📊 Sende Updates für {len(current_stock)} Items in {len(items_by_category)} Kategorien")
+        
+        # Sende alle Kategorien als Updates
+        for category, items in items_by_category.items():
+            if items:
+                await send_category_update(ctx.guild, category, items)
+                await asyncio.sleep(1)
+        
+        await ctx.send("✅ Alle Stock-Updates gesendet!")
+    else:
+        await ctx.send("❌ Fehler beim Abrufen der Stock-Daten")
 
 @bot.command(name='downloademojis')
 @commands.has_permissions(administrator=True)

@@ -2067,6 +2067,170 @@ async def test_parsing(ctx):
     else:
         await ctx.send(f"❌ Rolle `{role_key}` nicht gefunden! Verwende `!createrole` ohne Parameter für eine Liste.")
 
+@bot.command(name='downloademojis')
+@commands.has_permissions(administrator=True)
+async def download_emojis_command(ctx):
+    """Lädt fehlende Emojis von der Website herunter"""
+    await ctx.send("🔄 Starte Emoji-Download...")
+    
+    result = await download_missing_emojis_for_guild(ctx.guild)
+    
+    if result['success']:
+        if result['downloaded']:
+            embed = discord.Embed(
+                title="✅ Emoji-Download abgeschlossen",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="📥 Heruntergeladen:",
+                value=f"{len(result['downloaded'])} Emojis",
+                inline=True
+            )
+            if result['failed']:
+                embed.add_field(
+                    name="❌ Fehlgeschlagen:",
+                    value=f"{len(result['failed'])} Emojis",
+                    inline=True
+                )
+            
+            # Zeige erste 10 heruntergeladene Emojis
+            emoji_list = []
+            for emoji_data in result['downloaded'][:10]:
+                emoji_list.append(f"{emoji_data['emoji']} `{emoji_data['name']}`")
+            
+            if emoji_list:
+                embed.add_field(
+                    name="🎉 Neue Emojis:",
+                    value="\n".join(emoji_list),
+                    inline=False
+                )
+                
+            if len(result['downloaded']) > 10:
+                embed.add_field(
+                    name="...",
+                    value=f"Und {len(result['downloaded']) - 10} weitere!",
+                    inline=False
+                )
+        else:
+            embed = discord.Embed(
+                title="ℹ️ Keine neuen Emojis",
+                description="Alle benötigten Emojis sind bereits vorhanden.",
+                color=discord.Color.blue()
+            )
+    else:
+        embed = discord.Embed(
+            title="❌ Emoji-Download fehlgeschlagen",
+            description=result.get('error', 'Unbekannter Fehler'),
+            color=discord.Color.red()
+        )
+    
+    await ctx.send(embed=embed)
+
+async def download_missing_emojis_for_guild(guild):
+    """Lädt fehlende Item-Emojis für einen Server herunter"""
+    print("🔄 Automatischer Emoji-Download gestartet...")
+    
+    # Check Server-Emoji-Limit
+    server_emoji_count = len(guild.emojis)
+    if server_emoji_count >= 50:
+        print(f"⚠️ Server-Emoji-Limit erreicht ({server_emoji_count}/50)")
+        return {
+            'success': False,
+            'error': f'Server-Emoji-Limit erreicht ({server_emoji_count}/50)',
+            'downloaded': [],
+            'failed': []
+        }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            async with session.get(STOCK_URL, headers=headers) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    soup = BeautifulSoup(html, 'html.parser')
+                    
+                    # Finde alle img-Tags in den Stock-Listen
+                    img_tags = soup.find_all('img', src=True)
+                    
+                    downloaded_emojis = []
+                    failed_emojis = []
+                    
+                    for img in img_tags:
+                        img_src = img.get('src', '')
+                        
+                        # Überspringe externe Bilder und Icons
+                        if not img_src.startswith('/images/') or 'icon' in img_src.lower():
+                            continue
+                        
+                        # Extrahiere Item-Namen aus dem Pfad
+                        item_filename = img_src.split('/')[-1]
+                        item_name = item_filename.replace('.png', '').replace('.jpg', '').replace('.webp', '')
+                        emoji_name = item_name.lower().replace('-', '_').replace(' ', '_')
+                        
+                        # Überspringe wenn Emoji bereits existiert
+                        if discord.utils.get(guild.emojis, name=emoji_name):
+                            continue
+                        
+                        # Checke Server-Emoji-Limit
+                        if len(guild.emojis) >= 50:
+                            print(f"⚠️ Server-Emoji-Limit erreicht während Download")
+                            break
+                        
+                        try:
+                            # Download Bild
+                            full_url = f"https://vulcanvalues.com{img_src}"
+                            async with session.get(full_url, headers=headers) as img_response:
+                                if img_response.status == 200:
+                                    image_data = await img_response.read()
+                                    
+                                    # Erstelle Emoji
+                                    emoji = await guild.create_custom_emoji(
+                                        name=emoji_name,
+                                        image=image_data,
+                                        reason="Auto-downloaded from stock website"
+                                    )
+                                    downloaded_emojis.append({
+                                        'name': emoji_name,
+                                        'original': item_name,
+                                        'emoji': emoji
+                                    })
+                                    print(f"✅ {emoji_name} -> {emoji}")
+                                    
+                                    # Kleine Pause um Rate-Limits zu vermeiden
+                                    await asyncio.sleep(0.5)
+                                    
+                                else:
+                                    print(f"❌ Download fehlgeschlagen für {full_url}: {img_response.status}")
+                                    failed_emojis.append(item_name)
+                                    
+                        except Exception as e:
+                            print(f"❌ Fehler beim Erstellen von Emoji {emoji_name}: {e}")
+                            failed_emojis.append(item_name)
+                    
+                    return {
+                        'success': True,
+                        'downloaded': downloaded_emojis,
+                        'failed': failed_emojis
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': f'Website nicht erreichbar: {response.status}',
+                        'downloaded': [],
+                        'failed': []
+                    }
+                    
+    except Exception as e:
+        print(f"❌ Fehler beim Emoji-Download: {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'downloaded': [],
+            'failed': []
+        }
+
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):

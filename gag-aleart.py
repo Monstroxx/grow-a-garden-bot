@@ -43,6 +43,9 @@ tracked_items = [
     'Seeds', 'Gear', 'Eggs', 'Honey', 'Cosmetics', 'Special Items'
 ]
 
+# Vulcan Bot Integration Toggle
+use_vulcan_bot = {}  # Guild ID -> Boolean
+
 # Erweiterte Rollen für spezifische Raritäten
 detailed_roles = {
     # Pet/Egg Raritäten (basierend auf offiziellem Wiki)
@@ -321,7 +324,7 @@ async def fetch_stock_data():
                     
                     stock_data = {}
                     
-                    # Definiere die Shop-Kategorien
+                    # Verbesserte Shop-Kategorien-Erkennung
                     shop_categories = {
                         'GEAR STOCK': 'Gear',
                         'EGG STOCK': 'Eggs', 
@@ -330,65 +333,147 @@ async def fetch_stock_data():
                         'COSMETICS STOCK': 'Cosmetics'
                     }
                     
-                    # Finde alle Stock-Sektionen
+                    # Suche nach allen Stock-Sektionen (flexiblere Erkennung)
                     for category_name, category_type in shop_categories.items():
-                        # Suche nach dem Header
+                        print(f"🔍 Suche nach {category_name}...")
+                        
+                        # Mehrere Suchmethoden für bessere Erkennung
+                        header = None
+                        
+                        # Methode 1: Direkte h2-Suche
                         header = soup.find('h2', string=category_name)
+                        
+                        # Methode 2: h2 mit Text-Inhalten
+                        if not header:
+                            headers = soup.find_all('h2')
+                            for h in headers:
+                                if category_name in h.get_text(strip=True):
+                                    header = h
+                                    break
+                        
+                        # Methode 3: Suche in div-Klassen und Text
+                        if not header:
+                            divs = soup.find_all('div')
+                            for div in divs:
+                                text = div.get_text(strip=True)
+                                if category_name in text and any(cls in str(div.get('class', [])) for cls in ['font-bold', 'text-xl', 'mb-2']):
+                                    header = div
+                                    break
+                        
                         if header:
-                            # Finde das Parent-Div der Kategorie
-                            category_div = header.find_parent('div')
-                            if category_div:
-                                # Finde alle li-Elemente in dieser Kategorie
-                                items = category_div.find_all('li', class_='bg-gray-900')
-                                
-                                for item in items:
-                                    try:
-                                        # Finde den span mit dem Item-Namen
-                                        span = item.find('span')
-                                        if span:
-                                            # Extrahiere Item-Name (ohne die Anzahl in gray)
-                                            item_text = span.get_text(strip=True)
+                            print(f"✅ {category_name} Header gefunden")
+                            
+                            # Finde Container mit Items
+                            container = header.find_parent('div')
+                            if not container:
+                                container = header
+                            
+                            # Suche nach ul/li Struktur oder direkt nach Items
+                            items = []
+                            
+                            # Methode 1: ul > li Struktur
+                            ul = container.find('ul')
+                            if ul:
+                                items = ul.find_all('li')
+                            
+                            # Methode 2: Direkte li-Suche im Container
+                            if not items:
+                                items = container.find_all('li')
+                            
+                            # Methode 3: div-Items mit bg-gray-900 Klasse
+                            if not items:
+                                items = container.find_all('div', class_=lambda x: x and 'bg-gray-900' in x)
+                            
+                            print(f"📦 {len(items)} Items gefunden in {category_name}")
+                            
+                            for item in items:
+                                try:
+                                    # Flexiblere Item-Extraktion
+                                    item_name = None
+                                    quantity = 1
+                                    img_src = ''
+                                    
+                                    # Suche nach Bild
+                                    img = item.find('img')
+                                    if img:
+                                        img_src = img.get('src', '')
+                                        # Fallback: alt-Text als Item-Name
+                                        if not item_name:
+                                            item_name = img.get('alt', '').strip()
+                                    
+                                    # Suche nach span mit Item-Namen
+                                    spans = item.find_all('span')
+                                    for span in spans:
+                                        span_text = span.get_text(strip=True)
+                                        if span_text and not span_text.startswith('x') and 'x' in span_text:
+                                            # Format: "Item Name x3"
+                                            parts = span_text.split(' x')
+                                            if len(parts) >= 2:
+                                                item_name = parts[0].strip()
+                                                try:
+                                                    quantity = int(parts[1].strip())
+                                                except:
+                                                    quantity = 1
+                                            break
+                                        elif span_text and not span_text.startswith('x') and len(span_text) > 2:
+                                            # Nur Item-Name, Anzahl separat suchen
+                                            item_name = span_text
                                             
-                                            # Entferne die Anzahl (z.B. "x3") am Ende
-                                            item_name = item_text.split(' x')[0].strip()
-                                            
-                                            # Extrahiere die Anzahl
-                                            quantity_span = span.find('span', class_='text-gray-400')
-                                            quantity = 1
-                                            if quantity_span:
-                                                qty_text = quantity_span.get_text(strip=True)
-                                                if qty_text.startswith('x'):
+                                            # Suche nach Anzahl in gray-Text
+                                            gray_spans = item.find_all('span', class_=lambda x: x and 'gray' in str(x))
+                                            for gray_span in gray_spans:
+                                                gray_text = gray_span.get_text(strip=True)
+                                                if gray_text.startswith('x'):
                                                     try:
-                                                        quantity = int(qty_text[1:])
+                                                        quantity = int(gray_text[1:])
                                                     except:
                                                         quantity = 1
-                                            
-                                            # Finde das Bild für zusätzliche Info
-                                            img = item.find('img')
-                                            img_src = img.get('src', '') if img else ''
-                                            
-                                            if item_name:
-                                                stock_data[item_name] = {
-                                                    'available': True,
-                                                    'category': category_type,
-                                                    'quantity': quantity,
-                                                    'image': img_src,
-                                                    'timestamp': datetime.now()
-                                                }
-                                    except Exception as e:
-                                        print(f"Fehler beim Parsen von Item: {e}")
-                                        continue
+                                                    break
+                                            break
+                                    
+                                    # Fallback: Suche nach Text im gesamten Item
+                                    if not item_name:
+                                        full_text = item.get_text(strip=True)
+                                        # Entferne bekannte Störelemente
+                                        clean_text = full_text.replace('UPDATES IN:', '').strip()
+                                        if clean_text and len(clean_text) > 2 and not clean_text.startswith('x'):
+                                            if ' x' in clean_text:
+                                                parts = clean_text.split(' x')
+                                                item_name = parts[0].strip()
+                                                if len(parts) > 1:
+                                                    try:
+                                                        quantity = int(parts[1].strip())
+                                                    except:
+                                                        quantity = 1
+                                            else:
+                                                item_name = clean_text
+                                    
+                                    if item_name and item_name not in ['UPDATES IN', 'STOCK']:
+                                        # Bereinige Item-Namen
+                                        item_name = item_name.replace('\n', ' ').strip()
+                                        
+                                        stock_data[item_name] = {
+                                            'available': True,
+                                            'category': category_type,
+                                            'quantity': quantity,
+                                            'image': img_src,
+                                            'timestamp': datetime.now()
+                                        }
+                                        print(f"  ✅ {item_name} x{quantity}")
+                                    
+                                except Exception as e:
+                                    print(f"❌ Fehler beim Parsen von Item in {category_name}: {e}")
+                                    continue
+                        else:
+                            print(f"❌ {category_name} Header nicht gefunden")
                     
-                    print(f"Stock-Daten geladen: {len(stock_data)} Items gefunden")
-                    for item, data in stock_data.items():
-                        print(f"  - {item} ({data['category']}) x{data['quantity']}")
-                    
+                    print(f"🎯 Stock-Daten geladen: {len(stock_data)} Items total")
                     return stock_data
                 else:
-                    print(f"HTTP Error: {response.status}")
+                    print(f"❌ HTTP Error: {response.status}")
                     return None
     except Exception as e:
-        print(f"Fehler beim Abrufen der Stock-Daten: {e}")
+        print(f"❌ Fehler beim Abrufen der Stock-Daten: {e}")
         return None
 
 @tasks.loop(minutes=5)
@@ -472,12 +557,29 @@ async def send_category_stock_update(category, items):
     if not guild:
         return
     
-    # Finde den entsprechenden Channel für die Kategorie
-    channel_name = f"gag-{category.lower()}-stock"
+    guild_id = guild.id
+    using_vulcan = use_vulcan_bot.get(guild_id, False)
+    
+    # Vulcan Bot übernimmt Seeds und Gear
+    if using_vulcan and category in ['Seeds', 'Gear']:
+        print(f"🤖 {category} wird von Vulcan Bot verwaltet - überspringe eigene Benachrichtigung")
+        return
+    
+    # Bestimme Channel basierend auf Modus
+    if using_vulcan and category in ['Eggs', 'Honey', 'Cosmetics']:
+        # Für andere Kategorien weiterhin separate Channels
+        channel_name = f"gag-{category.lower()}-stock"
+    elif using_vulcan:
+        # Seeds/Gear werden im kombinierten Channel gepostet (falls doch mal benötigt)
+        channel_name = "gag-stock-alerts"
+    else:
+        # Normaler Modus - separate Channels
+        channel_name = f"gag-{category.lower()}-stock"
+    
     channel = discord.utils.get(guild.channels, name=channel_name)
     
     if not channel:
-        print(f"❌ Channel {channel_name} nicht gefunden! Verwende !channelsetup")
+        print(f"❌ Channel {channel_name} nicht gefunden!")
         return
     
     # Bestimme Emoji und Farbe
@@ -1432,6 +1534,145 @@ async def reset_role_messages(ctx):
         await ctx.send(f"✅ Role-Setup aktualisiert! {deleted_count} alte Nachrichten gelöscht.")
     else:
         await ctx.send("❌ Du benötigst Administrator-Rechte für diesen Befehl.")
+
+@bot.command(name='vulcanbot')
+async def toggle_vulcan_bot(ctx, action=None):
+    """Togglet zwischen eigenem Bot und Vulcan Bot für Stock-Benachrichtigungen"""
+    if not ctx.author.guild_permissions.administrator:
+        await ctx.send("❌ Du benötigst Administrator-Rechte für diesen Befehl.")
+        return
+    
+    guild_id = ctx.guild.id
+    current_setting = use_vulcan_bot.get(guild_id, False)
+    
+    if action is None:
+        # Zeige aktuellen Status
+        status = "Vulcan Bot" if current_setting else "Eigener Bot"
+        embed = discord.Embed(
+            title="🤖 Bot-Modus Status",
+            description=f"**Aktueller Modus:** {status}",
+            color=discord.Color.blue()
+        )
+        embed.add_field(
+            name="💡 Ändern:",
+            value="`!vulcanbot on` - Vulcan Bot verwenden\n`!vulcanbot off` - Eigenen Bot verwenden",
+            inline=False
+        )
+        embed.add_field(
+            name="📋 Unterschiede:",
+            value="**Eigener Bot:** Separate Channels, detaillierte Rollen\n**Vulcan Bot:** Kombinierte Seeds/Gear Alerts, /stockalert-gag Befehle",
+            inline=False
+        )
+        await ctx.send(embed=embed)
+        return
+    
+    if action.lower() in ['on', 'enable', 'vulcan']:
+        use_vulcan_bot[guild_id] = True
+        await setup_vulcan_mode(ctx)
+    elif action.lower() in ['off', 'disable', 'own']:
+        use_vulcan_bot[guild_id] = False
+        await ctx.send("✅ **Eigener Bot-Modus aktiviert**\nVerwende `!channelsetup` und `!resetroles` für Setup.")
+    else:
+        await ctx.send("❌ Ungültige Option. Verwende: `!vulcanbot on` oder `!vulcanbot off`")
+
+async def setup_vulcan_mode(ctx):
+    """Richtet den Vulcan-Bot-Modus ein"""
+    guild = ctx.guild
+    
+    # Suche oder erstelle combined stock channel
+    channel_name = "gag-stock-alerts"
+    channel = discord.utils.get(guild.channels, name=channel_name)
+    
+    if not channel:
+        # Erstelle Kategorie falls nicht vorhanden
+        category = discord.utils.get(guild.categories, name="🌱 Grow a Garden Stock")
+        if not category:
+            category = await guild.create_category("🌱 Grow a Garden Stock")
+        
+        # Erstelle kombinierten Channel
+        channel = await guild.create_text_channel(
+            name=channel_name,
+            category=category,
+            topic="Seeds & Gear Stock Alerts für Vulcan Bot"
+        )
+        await ctx.send(f"✅ Channel erstellt: {channel.mention}")
+    
+    # Sende Vulcan Bot Setup-Nachricht
+    embed = discord.Embed(
+        title="🤖 Vulcan Bot Modus aktiviert",
+        description="Seeds und Gear werden jetzt im kombinierten Channel gepostet.",
+        color=discord.Color.gold()
+    )
+    embed.add_field(
+        name="📍 Setup für Vulcan Bot:",
+        value=f"Führe diese Befehle im {channel.mention} aus:",
+        inline=False
+    )
+    embed.add_field(
+        name="🌱 Seeds Setup:",
+        value="`/stockalert-gag seeds channel_here`",
+        inline=True
+    )
+    embed.add_field(
+        name="⚒️ Gear Setup:",
+        value="`/stockalert-gag gear channel_here`",
+        inline=True
+    )
+    embed.add_field(
+        name="🔧 Info:",
+        value="Der Vulcan Bot übernimmt jetzt Seeds & Gear Alerts.\nAndere Kategorien (Eggs, Honey, Cosmetics) werden weiterhin von unserem Bot verwaltet.",
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
+    
+    # Sende die tatsächlichen Befehle in den Channel
+    await channel.send("🤖 **Vulcan Bot Setup - Führe diese Befehle aus:**")
+    await asyncio.sleep(1)
+    await channel.send("/stockalert-gag seeds channel_here")
+    await asyncio.sleep(1)
+    await channel.send("/stockalert-gag gear channel_here")
+
+@bot.command(name='testparse')
+async def test_parsing(ctx):
+    """Testet das Website-Parsing (Admin only)"""
+    if not ctx.author.guild_permissions.administrator:
+        await ctx.send("❌ Du benötigst Administrator-Rechte für diesen Befehl.")
+        return
+    
+    await ctx.send("🔄 Teste Website-Parsing...")
+    stock_data = await fetch_stock_data()
+    
+    if not stock_data:
+        await ctx.send("❌ Keine Daten empfangen.")
+        return
+    
+    # Gruppiere nach Kategorien
+    categories = {}
+    for item_name, item_data in stock_data.items():
+        category = item_data['category']
+        if category not in categories:
+            categories[category] = []
+        categories[category].append(f"{item_name} (x{item_data['quantity']})")
+    
+    embed = discord.Embed(
+        title="🧪 Parsing Test Results",
+        description=f"**{len(stock_data)} Items** insgesamt gefunden",
+        color=discord.Color.green()
+    )
+    
+    for category, items in categories.items():
+        items_text = "\n".join(items[:5])  # Nur ersten 5 zeigen
+        if len(items) > 5:
+            items_text += f"\n... und {len(items) - 5} weitere"
+        
+        embed.add_field(
+            name=f"{category} ({len(items)})",
+            value=items_text or "Keine Items",
+            inline=True
+        )
+    
+    await ctx.send(embed=embed)
     """Zeigt alle verfügbaren Commands"""
     embed = discord.Embed(
         title="🤖 Grow a Garden Stock Bot Commands",

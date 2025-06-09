@@ -313,6 +313,82 @@ class CosmeticsView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(CosmeticsDropdown())
 
+async def send_category_update(guild, category, items):
+    """Sendet ein Stock-Update für eine Kategorie"""
+    try:
+        # Finde den entsprechenden Channel
+        channel_name = f"{category.lower()}-stock"
+        channel = discord.utils.get(guild.channels, name=channel_name)
+        
+        if not channel:
+            print(f"⚠️ Channel '{channel_name}' nicht gefunden in Guild {guild.name}")
+            return
+        
+        # Kategorie-spezifische Konfiguration
+        category_config = {
+            'Seeds': {'emoji': '🌱', 'color': discord.Color.green()},
+            'Gear': {'emoji': '⚒️', 'color': discord.Color.blue()},
+            'Eggs': {'emoji': '🥚', 'color': discord.Color.orange()},
+            'Honey': {'emoji': '🍯', 'color': discord.Color.gold()},
+            'Cosmetics': {'emoji': '🎨', 'color': discord.Color.purple()}
+        }
+        
+        config = category_config.get(category, {'emoji': '📦', 'color': discord.Color.greyple()})
+        emoji = config['emoji']
+        color = config['color']
+        
+        # Sammle Rollen für Mentions
+        mentioned_roles = set()
+        
+        # Hauptkategorie-Rolle
+        main_role = discord.utils.get(guild.roles, name=f"{category.lower()}_stock_notify")
+        if main_role:
+            mentioned_roles.add(main_role)
+        
+        # Erstelle Embed
+        embed = discord.Embed(
+            title=f"{emoji} {category} Stock Update!",
+            description=f"Neue Items im {category} Shop verfügbar:",
+            color=color,
+            timestamp=datetime.now()
+        )
+        
+        # Füge Items hinzu und sammle spezifische Rollen
+        items_text = ""
+        
+        for item_key, item_data in items:
+            quantity = item_data.get('quantity', 1)
+            # Verwende display_name falls verfügbar, sonst den Key
+            item_name = item_data.get('display_name', item_key)
+            
+            # Bestimme spezifische Rarität
+            detailed_rarity = determine_detailed_rarity(item_name, category)
+            specific_role = discord.utils.get(guild.roles, name=f"{detailed_rarity}_stock_notify")
+            if specific_role:
+                mentioned_roles.add(specific_role)
+            
+            # Suche nach Custom Emoji
+            custom_emoji = get_item_emoji(guild, item_name)
+            
+            # Bestimme Rarität-Emoji
+            rarity_emoji = detailed_roles.get(detailed_rarity, {}).get('emoji', emoji)
+            
+            item_display = str(custom_emoji) if custom_emoji else rarity_emoji
+            items_text += f"{item_display} **{item_name}** (x{quantity}) - *{detailed_rarity.replace('_', ' ').title()}*\n"
+        
+        embed.add_field(name="Verfügbare Items:", value=items_text, inline=False)
+        embed.set_footer(text="Grow a Garden Stock Bot")
+        
+        # Erstelle Mention-String
+        mentions = " ".join([role.mention for role in mentioned_roles])
+        
+        # Sende Nachricht
+        await channel.send(content=mentions, embed=embed)
+        print(f"✅ {category} Update gesendet an {guild.name}")
+        
+    except Exception as e:
+        print(f"❌ Fehler beim Senden von {category} Update an {guild.name}: {e}")
+
 async def fetch_stock_data():
     """Holt die aktuellen Stock-Daten von der Website mit universeller Erkennung"""
     try:

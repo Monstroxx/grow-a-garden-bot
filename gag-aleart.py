@@ -566,14 +566,14 @@ async def send_category_stock_update(category, items):
         return
     
     # Bestimme Channel basierend auf Modus
-    if using_vulcan and category in ['Eggs', 'Honey', 'Cosmetics']:
-        # Für andere Kategorien weiterhin separate Channels
+    if using_vulcan and category in ['Seeds', 'Gear']:
+        # Seeds und Gear gehen zum kombinierten Channel (falls doch mal benötigt für Debugging)
+        channel_name = "gag-seeds-gear-stock"
+    elif using_vulcan and category in ['Eggs', 'Honey', 'Cosmetics']:
+        # Andere Kategorien weiterhin separate Channels
         channel_name = f"gag-{category.lower()}-stock"
-    elif using_vulcan:
-        # Seeds/Gear werden im kombinierten Channel gepostet (falls doch mal benötigt)
-        channel_name = "gag-stock-alerts"
     else:
-        # Normaler Modus - separate Channels
+        # Normaler Modus (eigener Bot) - separate Channels für alle
         channel_name = f"gag-{category.lower()}-stock"
     
     channel = discord.utils.get(guild.channels, name=channel_name)
@@ -1560,7 +1560,7 @@ async def toggle_vulcan_bot(ctx, action=None):
         )
         embed.add_field(
             name="📋 Unterschiede:",
-            value="**Eigener Bot:** Separate Channels, detaillierte Rollen\n**Vulcan Bot:** Kombinierte Seeds/Gear Alerts, /stockalert-gag Befehle",
+            value="**Eigener Bot:** Separate Channels (seeds, gear, eggs, honey, cosmetics)\n**Vulcan Bot:** Kombinierter Seeds+Gear Channel, separate andere Channels",
             inline=False
         )
         await ctx.send(embed=embed)
@@ -1571,7 +1571,7 @@ async def toggle_vulcan_bot(ctx, action=None):
         await setup_vulcan_mode(ctx)
     elif action.lower() in ['off', 'disable', 'own']:
         use_vulcan_bot[guild_id] = False
-        await ctx.send("✅ **Eigener Bot-Modus aktiviert**\nVerwende `!channelsetup` und `!resetroles` für Setup.")
+        await setup_own_bot_mode(ctx)
     else:
         await ctx.send("❌ Ungültige Option. Verwende: `!vulcanbot on` oder `!vulcanbot off`")
 
@@ -1580,7 +1580,7 @@ async def setup_vulcan_mode(ctx):
     guild = ctx.guild
     
     # Suche oder erstelle combined stock channel
-    channel_name = "gag-stock-alerts"
+    channel_name = "gag-seeds-gear-stock"
     channel = discord.utils.get(guild.channels, name=channel_name)
     
     if not channel:
@@ -1589,49 +1589,81 @@ async def setup_vulcan_mode(ctx):
         if not category:
             category = await guild.create_category("🌱 Grow a Garden Stock")
         
-        # Erstelle kombinierten Channel
+        # Erstelle kombinierten Channel für Seeds + Gear
         channel = await guild.create_text_channel(
             name=channel_name,
             category=category,
-            topic="Seeds & Gear Stock Alerts für Vulcan Bot"
+            topic="Seeds & Gear Stock Alerts (Vulcan Bot)"
         )
-        await ctx.send(f"✅ Channel erstellt: {channel.mention}")
+        await ctx.send(f"✅ Kombinierter Channel erstellt: {channel.mention}")
     
     # Sende Vulcan Bot Setup-Nachricht
     embed = discord.Embed(
         title="🤖 Vulcan Bot Modus aktiviert",
-        description="Seeds und Gear werden jetzt im kombinierten Channel gepostet.",
+        description="Seeds und Gear werden jetzt zusammen im kombinierten Channel verwaltet.",
         color=discord.Color.gold()
     )
     embed.add_field(
         name="📍 Setup für Vulcan Bot:",
-        value=f"Führe diese Befehle im {channel.mention} aus:",
+        value=f"Führe diesen Befehl im {channel.mention} aus:",
         inline=False
     )
     embed.add_field(
-        name="🌱 Seeds Setup:",
-        value="`/stockalert-gag seeds channel_here`",
-        inline=True
+        name="🌱⚒️ Seeds & Gear Setup:",
+        value="`/stockalert-gag channel_here seed:@rolle gear:@rolle`",
+        inline=False
     )
     embed.add_field(
-        name="⚒️ Gear Setup:",
-        value="`/stockalert-gag gear channel_here`",
-        inline=True
+        name="📋 Beispiel:",
+        value="`/stockalert-gag #gag-seeds-gear-stock seed:@Seeds-Notify gear:@Gear-Notify`",
+        inline=False
     )
     embed.add_field(
         name="🔧 Info:",
-        value="Der Vulcan Bot übernimmt jetzt Seeds & Gear Alerts.\nAndere Kategorien (Eggs, Honey, Cosmetics) werden weiterhin von unserem Bot verwaltet.",
+        value="• **Vulcan Bot:** Übernimmt Seeds & Gear zusammen\n• **Unser Bot:** Verwaltet weiterhin Eggs, Honey, Cosmetics getrennt\n• **Rückwechsel:** `!vulcanbot off` für separate Channels",
         inline=False
     )
     
     await ctx.send(embed=embed)
     
-    # Sende die tatsächlichen Befehle in den Channel
-    await channel.send("🤖 **Vulcan Bot Setup - Führe diese Befehle aus:**")
+    # Sende den tatsächlichen Befehl in den Channel
+    await channel.send("🤖 **Vulcan Bot Setup - Führe diesen Befehl aus:**")
     await asyncio.sleep(1)
-    await channel.send("/stockalert-gag seeds channel_here")
+    await channel.send("/stockalert-gag channel_here seed:@rolle gear:@rolle")
     await asyncio.sleep(1)
-    await channel.send("/stockalert-gag gear channel_here")
+    await channel.send("*(Ersetze `channel_here` und `@rolle` mit euren gewünschten Einstellungen)*")
+
+async def setup_own_bot_mode(ctx):
+    """Richtet den eigenen Bot-Modus ein (separate Channels)"""
+    guild = ctx.guild
+    
+    embed = discord.Embed(
+        title="🤖 Eigener Bot-Modus aktiviert",
+        description="Separate Channels für alle Kategorien werden verwendet.",
+        color=discord.Color.green()
+    )
+    embed.add_field(
+        name="📍 Setup benötigt:",
+        value="Führe diese Befehle aus um die separaten Channels zu erstellen:",
+        inline=False
+    )
+    embed.add_field(
+        name="🔧 Commands:",
+        value="`!channelsetup` - Erstellt separate Channels\n`!resetroles` - Setzt Role-Dropdowns auf",
+        inline=False
+    )
+    embed.add_field(
+        name="📋 Channels die erstellt werden:",
+        value="• `gag-seeds-stock` - Nur Seeds\n• `gag-gear-stock` - Nur Gear\n• `gag-eggs-stock` - Nur Eggs\n• `gag-honey-stock` - Nur Honey\n• `gag-cosmetics-stock` - Nur Cosmetics",
+        inline=False
+    )
+    embed.add_field(
+        name="🔔 Benachrichtigungen:",
+        value="Unser Bot sendet wieder für **alle Kategorien** getrennte, detaillierte Benachrichtigungen.",
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
 
 @bot.command(name='testparse')
 async def test_parsing(ctx):

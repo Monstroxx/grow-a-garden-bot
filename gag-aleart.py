@@ -362,7 +362,15 @@ async def fetch_stock_data():
                                             except:
                                                 quantity = 1
                                     else:
-                                        item_name = span_text
+                                        # Kein ' x' gefunden, prüfe auf andere Patterns
+                                        import re
+                                        # Pattern: "Name x3" (mit direkt angehängtem x)
+                                        match = re.match(r'^(.+?)x(\d+)$', span_text)
+                                        if match:
+                                            item_name = match.group(1).strip()
+                                            quantity = int(match.group(2))
+                                        else:
+                                            item_name = span_text
                                     break
                             
                             # Methode 2: Suche nach Quantity in gray spans
@@ -397,8 +405,14 @@ async def fetch_stock_data():
                                 if match:
                                     item_name = match.group(1).strip()
                                     quantity = int(match.group(2))
-                                elif clean_text and len(clean_text) > 2 and not clean_text.isdigit():
-                                    item_name = clean_text
+                                else:
+                                    # Pattern: "NamexNumber" (ohne Leerzeichen)
+                                    match = re.search(r'^(.+?)x(\d+)$', clean_text)
+                                    if match:
+                                        item_name = match.group(1).strip()
+                                        quantity = int(match.group(2))
+                                    elif clean_text and len(clean_text) > 2 and not clean_text.isdigit():
+                                        item_name = clean_text
                             
                             if item_name:
                                 # Bestimme Kategorie durch Kontext-Analyse
@@ -529,6 +543,23 @@ def determine_item_category(item_element, item_name, soup):
     except Exception as e:
         print(f"❌ Fehler bei Kategorie-Bestimmung: {e}")
         return 'Unknown'
+
+def clean_item_name_for_display(key):
+    """Bereinigt einen Item-Key für die Anzeige"""
+    if not key:
+        return ""
+    
+    # Entferne Kategorie-Suffix (_Gear, _Seeds, etc.)
+    import re
+    name = re.sub(r'_[A-Z][a-z]+(_\d+)?$', '', key)
+    
+    # Entferne Quantity am Anfang falls vorhanden (xNumber)
+    name = re.sub(r'x\d+$', '', name)
+    
+    # Entferne Counter-Suffix (_2, _3, etc.)
+    name = re.sub(r'_\d+$', '', name)
+    
+    return name.strip()
 
 def clean_item_name(name):
     """Bereinigt Item-Namen von Störzeichen und Texten"""
@@ -697,6 +728,11 @@ async def send_category_stock_update(category, items):
         quantity = item_data.get('quantity', 1)
         # Verwende display_name falls verfügbar, sonst den Key
         item_name = item_data.get('display_name', item_key)
+        
+        # Zusätzliche Bereinigung für Display
+        if not item_data.get('display_name'):
+            # Falls kein display_name vorhanden, bereinige den Key
+            item_name = clean_item_name_for_display(item_key)
         
         # Bestimme spezifische Rarität
         detailed_rarity = determine_detailed_rarity(item_name, category)

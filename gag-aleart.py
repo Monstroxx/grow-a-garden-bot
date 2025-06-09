@@ -2313,6 +2313,98 @@ async def download_missing_emojis_for_guild(guild):
             'failed': []
         }
 
+@tasks.loop(minutes=5)
+async def stock_monitoring_task():
+    """Automatische Stock-Überwachung alle 5 Minuten"""
+    try:
+        print("🔄 Stock-Check gestartet...")
+        current_stock = await fetch_stock_data()
+        
+        if not current_stock:
+            print("❌ Keine Stock-Daten erhalten")
+            return
+        
+        global last_stock_data
+        
+        # Vergleiche mit vorherigen Daten
+        changed_categories = {}
+        
+        for item_key, item_data in current_stock.items():
+            category = item_data['category']
+            
+            # Prüfe ob Item neu ist oder sich die Quantity geändert hat
+            is_new_or_changed = False
+            
+            if item_key not in last_stock_data:
+                # Komplett neues Item
+                is_new_or_changed = True
+                print(f"🆕 Neues Item: {item_data.get('display_name', item_key)}")
+            else:
+                # Prüfe auf Quantity-Änderung
+                old_quantity = last_stock_data[item_key].get('quantity', 0)
+                new_quantity = item_data.get('quantity', 0)
+                if old_quantity != new_quantity:
+                    is_new_or_changed = True
+                    print(f"📊 Quantity geändert: {item_data.get('display_name', item_key)} ({old_quantity} → {new_quantity})")
+            
+            if is_new_or_changed:
+                if category not in changed_categories:
+                    changed_categories[category] = []
+                # Sammle ALLE Items der Kategorie, nicht nur die neuen!
+                
+        # Für jede geänderte Kategorie: Sammle ALLE verfügbaren Items
+        for changed_category in changed_categories.keys():
+            all_items_in_category = []
+            for item_key, item_data in current_stock.items():
+                if item_data['category'] == changed_category:
+                    all_items_in_category.append((item_key, item_data))
+            
+            if all_items_in_category:
+                print(f"📨 Sende Update für {changed_category}: {len(all_items_in_category)} Items")
+                
+                # Sende Update an alle Guilds
+                for guild in bot.guilds:
+                    try:
+                        await send_category_update(guild, changed_category, all_items_in_category)
+                        await asyncio.sleep(1)  # Kurze Pause zwischen Guilds
+                    except Exception as e:
+                        print(f"❌ Fehler beim Senden an Guild {guild.name}: {e}")
+        
+        # Aktualisiere gespeicherte Daten
+        last_stock_data.update(current_stock)
+        
+        if changed_categories:
+            print(f"✅ Stock-Check abgeschlossen: {len(changed_categories)} Kategorien aktualisiert")
+        else:
+            print("ℹ️ Stock-Check abgeschlossen: Keine Änderungen")
+            
+    except Exception as e:
+        print(f"❌ Fehler beim Stock-Monitoring: {e}")
+
+@bot.event
+async def on_ready():
+    """Bot ist gestartet und bereit"""
+    print(f'🤖 {bot.user} ist online und bereit!')
+    print(f"📊 Verbunden mit {len(bot.guilds)} Server(n)")
+    
+    # Starte Stock-Monitoring
+    if not stock_monitoring_task.is_running():
+        stock_monitoring_task.start()
+        print("🔄 Stock-Monitoring gestartet (alle 5 Minuten)")
+    
+    # Initial Stock-Load
+    try:
+        print("📥 Lade initialen Stock...")
+        initial_stock = await fetch_stock_data()
+        if initial_stock:
+            global last_stock_data
+            last_stock_data.update(initial_stock)
+            print(f"✅ {len(initial_stock)} Items als Basis geladen")
+        else:
+            print("⚠️ Konnte initialen Stock nicht laden")
+    except Exception as e:
+        print(f"❌ Fehler beim initialen Stock-Load: {e}")
+
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):

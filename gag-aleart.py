@@ -2601,12 +2601,15 @@ async def setup_role_messages():
     """Sendet Role-Selection Messages in alle Guilds"""
     for guild in bot.guilds:
         try:
-            # Finde oder erstelle Role-Channel
-            role_channel = discord.utils.get(guild.channels, name="gag-role-selection")
+            # Verwende die feste ROLE_CHANNEL_ID
+            role_channel = bot.get_channel(ROLE_CHANNEL_ID)
             
             if not role_channel:
-                print(f"⚠️ Channel 'gag-role-selection' nicht gefunden in {guild.name}")
+                print(f"⚠️ Role-Channel mit ID {ROLE_CHANNEL_ID} nicht gefunden!")
                 continue
+            
+            if role_channel.guild != guild:
+                continue  # Channel gehört nicht zu dieser Guild
             
             # Lösche alte Bot-Nachrichten
             await cleanup_role_channel(role_channel)

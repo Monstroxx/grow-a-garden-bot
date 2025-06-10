@@ -117,6 +117,60 @@ class SeedsDropdown(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         await handle_role_selection(interaction, self.values, "Seeds")
 
+async def handle_role_selection(interaction, selected_values, category):
+    """Behandelt die Rollen-Auswahl für einen User"""
+    try:
+        guild = interaction.guild
+        user = interaction.user
+        
+        # Alle möglichen Rollen für diese Kategorie
+        category_roles = []
+        
+        # Haupt-Kategorie-Rolle
+        main_role_name = f"{category.lower()}_stock_notify"
+        main_role = discord.utils.get(guild.roles, name=main_role_name)
+        if main_role:
+            category_roles.append(main_role)
+        
+        # Spezifische Rollen basierend auf detailed_roles
+        for role_key, role_data in detailed_roles.items():
+            if role_data['category'] == category:
+                role_name = f"{role_key}_stock_notify"
+                role = discord.utils.get(guild.roles, name=role_name)
+                if role:
+                    category_roles.append(role)
+        
+        # Entferne alle Category-Rollen die der User hat
+        roles_to_remove = [role for role in user.roles if role in category_roles]
+        if roles_to_remove:
+            await user.remove_roles(*roles_to_remove)
+        
+        # Füge neue Rollen hinzu
+        roles_to_add = []
+        for value in selected_values:
+            role = discord.utils.get(guild.roles, name=value)
+            if role:
+                roles_to_add.append(role)
+        
+        if roles_to_add:
+            await user.add_roles(*roles_to_add)
+        
+        # Response Message
+        if roles_to_add:
+            role_names = [role.name.replace('_stock_notify', '').replace('_', ' ').title() for role in roles_to_add]
+            response = f"✅ **{category} Benachrichtigungen aktualisiert!**\n\nDu erhältst jetzt Updates für:\n• " + "\n• ".join(role_names)
+        else:
+            response = f"✅ **{category} Benachrichtigungen deaktiviert!**\n\nDu erhältst keine {category}-Updates mehr."
+        
+        await interaction.response.send_message(response, ephemeral=True)
+        
+    except Exception as e:
+        print(f"❌ Fehler bei Role-Selection: {e}")
+        try:
+            await interaction.response.send_message("❌ Fehler beim Aktualisieren der Rollen!", ephemeral=True)
+        except:
+            pass
+
 class GearDropdown(discord.ui.Select):
     def __init__(self):
         options = [
@@ -2539,6 +2593,91 @@ async def on_ready():
             print("⚠️ Konnte initialen Stock nicht laden")
     except Exception as e:
         print(f"❌ Fehler beim initialen Stock-Load: {e}")
+    
+    # Role-Setup für alle Guilds
+    await setup_role_messages()
+
+async def setup_role_messages():
+    """Sendet Role-Selection Messages in alle Guilds"""
+    for guild in bot.guilds:
+        try:
+            # Finde oder erstelle Role-Channel
+            role_channel = discord.utils.get(guild.channels, name="gag-role-selection")
+            
+            if not role_channel:
+                print(f"⚠️ Channel 'gag-role-selection' nicht gefunden in {guild.name}")
+                continue
+            
+            # Lösche alte Bot-Nachrichten
+            await cleanup_role_channel(role_channel)
+            
+            # Sende neue Role-Selection Messages
+            await send_role_selection_messages(role_channel)
+            print(f"✅ Role-Setup abgeschlossen für {guild.name}")
+            
+        except Exception as e:
+            print(f"❌ Fehler beim Role-Setup für {guild.name}: {e}")
+
+async def cleanup_role_channel(channel):
+    """Löscht alle Bot-Nachrichten im Role-Channel"""
+    try:
+        deleted_count = 0
+        async for message in channel.history(limit=100):
+            if message.author == bot.user:
+                try:
+                    await message.delete()
+                    deleted_count += 1
+                    await asyncio.sleep(0.5)  # Rate limiting
+                except:
+                    pass
+        print(f"🧹 {deleted_count} alte Role-Messages gelöscht in {channel.name}")
+    except Exception as e:
+        print(f"❌ Fehler beim Cleanup: {e}")
+
+async def send_role_selection_messages(channel):
+    """Sendet die Role-Selection Embeds und Views"""
+    try:
+        # Haupt-Embed
+        main_embed = discord.Embed(
+            title="🎭 Stock-Benachrichtigungen einrichten",
+            description="Wähle aus, für welche Items du Benachrichtigungen erhalten möchtest!\n\n"
+                       "Du kannst jederzeit Rollen hinzufügen oder entfernen.",
+            color=discord.Color.blue()
+        )
+        main_embed.add_field(
+            name="📋 Verfügbare Kategorien:",
+            value="🌱 **Seeds** - Samen und Pflanzen\n"
+                  "⚒️ **Gear** - Werkzeuge und Ausrüstung\n"
+                  "🥚 **Eggs** - Alle Arten von Eiern\n"
+                  "🍯 **Honey** - Honig-bezogene Items\n"
+                  "🎨 **Cosmetics** - Dekorative Items",
+            inline=False
+        )
+        main_embed.set_footer(text="Grow a Garden Stock Bot • Wähle unten deine gewünschten Benachrichtigungen")
+        
+        # Sende Haupt-Message
+        await channel.send(embed=main_embed)
+        
+        # Sende Category-Selection Views
+        categories = [
+            ("🌱 Seeds", SeedsView()),
+            ("⚒️ Gear", GearView()),
+            ("🥚 Eggs", EggsView()),
+            ("🍯 Honey", HoneyView()),
+            ("🎨 Cosmetics", CosmeticsView())
+        ]
+        
+        for category_name, view in categories:
+            category_embed = discord.Embed(
+                title=f"{category_name} Benachrichtigungen",
+                description=f"Wähle spezifische {category_name.split()[1]}-Benachrichtigungen:",
+                color=discord.Color.green()
+            )
+            await channel.send(embed=category_embed, view=view)
+            await asyncio.sleep(1)  # Kurze Pause zwischen Messages
+            
+    except Exception as e:
+        print(f"❌ Fehler beim Senden der Role-Messages: {e}")
 
 @bot.event
 async def on_command_error(ctx, error):

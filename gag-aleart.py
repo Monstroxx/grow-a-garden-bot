@@ -2565,7 +2565,7 @@ async def before_stock_monitoring():
     seconds_to_next_interval = (minutes_to_next_interval * 60) - now.second
     
     # Zusätzlich 10 Sekunden Delay für Stabilität
-    total_wait = seconds_to_next_interval + 10
+    total_wait = seconds_to_next_interval + 50
     
     print(f"⏰ Synchronisiere Stock-Monitoring... Warte {total_wait} Sekunden bis zum nächsten 5-Minuten-Intervall")
     await asyncio.sleep(total_wait)

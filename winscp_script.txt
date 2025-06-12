@@ -1,0 +1,11 @@
+# WinSCP Script für Bot-Update auf Raspberry Pi
+open sftp://stefan@192.168.171.100:22 -privatekey="C:\Users\jonas\Desktop\ssh-keys\putty.privat.pihole.ppk"
+
+# Gehe zum Bot-Verzeichnis
+cd /home/stefan
+
+# Prüfe ob Bot-Verzeichnis existiert
+ls
+
+# Beende WinSCP
+exit

@@ -14,6 +14,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 import time
+import platform
 
 # Lade Umgebungsvariablen
 load_dotenv()
@@ -811,7 +812,7 @@ def clean_item_name(name):
     return name.strip()
 
 def setup_chrome_driver():
-    """Erstellt und konfiguriert Chrome WebDriver für Cloudflare-Umgehung"""
+    """Erstellt und konfiguriert Chrome WebDriver für Cloudflare-Umgehung (Windows/Linux/Raspberry Pi)"""
     global _webdriver_instance
     
     if _webdriver_instance is not None:
@@ -827,9 +828,21 @@ def setup_chrome_driver():
                 pass
             _webdriver_instance = None
     
-    print("🔧 Initialisiere Chrome WebDriver für Selenium...")
+    import platform
+    system = platform.system().lower()
     
-    # Chrome-Pfad finden
+    if system == "windows":
+        print("🔧 Initialisiere Chrome WebDriver für Windows...")
+        return setup_chrome_driver_windows()
+    else:
+        print("🔧 Initialisiere Chrome WebDriver für Linux/Raspberry Pi...")
+        return setup_chrome_driver_linux()
+
+def setup_chrome_driver_windows():
+    """Chrome WebDriver Setup für Windows"""
+    global _webdriver_instance
+    
+    # Chrome-Pfad finden (Windows)
     chrome_paths = [
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
@@ -846,34 +859,117 @@ def setup_chrome_driver():
     if not chrome_path:
         raise Exception("❌ Chrome Browser nicht gefunden! Bitte Chrome installieren.")
     
-    # Chrome Optionen für Bot-Betrieb
+    # Chrome Optionen für Windows
     chrome_options = Options()
     chrome_options.binary_location = chrome_path
-    chrome_options.add_argument("--headless")  # Headless für Production
+    chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox") 
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-plugins")
-    chrome_options.add_argument("--disable-images")  # Schneller ohne Bilder
+    chrome_options.add_argument("--disable-images")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
     
     try:
-        # WebDriver erstellen
+        # WebDriver Manager für Windows
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
         
-        # Anti-Detection Maßnahmen
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         _webdriver_instance = driver
-        print("✅ Chrome WebDriver erfolgreich initialisiert")
+        print("✅ Chrome WebDriver erfolgreich initialisiert (Windows)")
         return driver
         
     except Exception as e:
-        print(f"❌ Chrome WebDriver Setup fehlgeschlagen: {e}")
+        print(f"❌ Windows Chrome WebDriver Setup fehlgeschlagen: {e}")
+        raise e
+
+def setup_chrome_driver_linux():
+    """Chrome WebDriver Setup für Linux/Raspberry Pi"""
+    global _webdriver_instance
+    
+    # Chrome/Chromium Pfad finden (Linux/Raspberry Pi)
+    chrome_paths = [
+        "/usr/bin/chromium-browser",  # Raspberry Pi Standard
+        "/usr/bin/chromium",
+        "/usr/bin/google-chrome",
+        "/usr/bin/chrome",
+        "/snap/bin/chromium"
+    ]
+    
+    chrome_path = None
+    for path in chrome_paths:
+        if os.path.exists(path):
+            chrome_path = path
+            print(f"✅ Chrome/Chromium gefunden: {path}")
+            break
+    
+    if not chrome_path:
+        raise Exception("❌ Chrome/Chromium nicht gefunden! Installiere mit: sudo apt install chromium-browser")
+    
+    # ChromeDriver Pfad finden (System-Installation bevorzugt)
+    chromedriver_paths = [
+        "/usr/bin/chromedriver",           # System-Installation
+        "/usr/local/bin/chromedriver",     # Manuelle Installation
+        "/usr/lib/chromium-browser/chromedriver",  # Chromium-spezifisch
+        "/snap/bin/chromium.chromedriver"  # Snap-Installation
+    ]
+    
+    chromedriver_path = None
+    for path in chromedriver_paths:
+        if os.path.exists(path):
+            chromedriver_path = path
+            print(f"✅ ChromeDriver gefunden: {path}")
+            break
+    
+    # Fallback zu WebDriver-Manager wenn System-ChromeDriver nicht verfügbar
+    use_system_driver = chromedriver_path is not None
+    
+    # Chrome Optionen für Linux/Raspberry Pi
+    chrome_options = Options()
+    chrome_options.binary_location = chrome_path
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox") 
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-plugins")
+    chrome_options.add_argument("--disable-images")
+    chrome_options.add_argument("--disable-web-security")
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+    # Raspberry Pi spezifische Optimierungen
+    chrome_options.add_argument("--memory-pressure-off")
+    chrome_options.add_argument("--max_old_space_size=4096")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    chrome_options.add_argument("--user-agent=Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
+    
+    try:
+        if use_system_driver:
+            print(f"🔧 Verwende System-ChromeDriver: {chromedriver_path}")
+            service = Service(chromedriver_path)
+        else:
+            print("🔧 Verwende WebDriver-Manager für ChromeDriver...")
+            service = Service(ChromeDriverManager().install())
+        
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
+        _webdriver_instance = driver
+        print("✅ Chrome WebDriver erfolgreich initialisiert (Linux/Raspberry Pi)")
+        return driver
+        
+    except Exception as e:
+        print(f"❌ Linux Chrome WebDriver Setup fehlgeschlagen: {e}")
+        # Bei ARM-Architektur spezifischen Hinweis geben
+        if "Exec format error" in str(e):
+            print("💡 ARM-Architektur erkannt. Installiere System-ChromeDriver:")
+            print("   sudo apt install chromium-chromedriver")
         raise e
 
 def selenium_fetch_stock_sync(url, max_wait_time=90):

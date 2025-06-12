@@ -8,6 +8,12 @@ import logging
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+import concurrent.futures
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
+import time
 
 # Lade Umgebungsvariablen
 load_dotenv()
@@ -48,6 +54,10 @@ tracked_items = [
 
 # Vulcan Bot Integration Toggle
 use_vulcan_bot = {}  # Guild ID -> Boolean
+
+# Selenium WebDriver globals
+_webdriver_instance = None
+_webdriver_lock = asyncio.Lock()
 
 # Erweiterte Rollen für spezifische Raritäten
 detailed_roles = {
@@ -456,158 +466,234 @@ async def send_category_update(guild, category, items):
         print(f"❌ Fehler beim Senden von {category} Update an {guild.name}: {e}")
 
 async def fetch_stock_data():
-    """Holt die aktuellen Stock-Daten von der Website mit universeller Erkennung"""
-    try:
-        async with aiohttp.ClientSession() as session:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    """
+    Holt die aktuellen Stock-Daten von der Website mit Selenium (Cloudflare-Umgehung)
+    Ersetzt die ursprüngliche aiohttp-basierte Methode
+    """
+    async with _webdriver_lock:
+        try:
+            print("🔄 Starte Selenium-basierte Stock-Daten-Abfrage...")
+            
+            # Führe Selenium-Operation in Thread-Pool aus (da synchron)
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                html_content = await loop.run_in_executor(
+                    executor, 
+                    selenium_fetch_stock_sync, 
+                    STOCK_URL,
+                    90  # 90 Sekunden max wait für Challenge
+                )
+            
+            if not html_content:
+                print("❌ Keine HTML-Daten von Selenium erhalten")
+                # Fallback zur aiohttp-Methode versuchen
+                return await fetch_stock_data_aiohttp_fallback()
+            
+            print(f"📊 Verarbeite {len(html_content)} Zeichen HTML-Content...")
+            
+            # BeautifulSoup für HTML-Parsing (wie im Original beibehalten)
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            stock_data = {}
+            
+            print("🔍 Starte universelle Stock-Erkennung...")
+            
+            # Originale Item-Finding-Logik beibehalten
+            all_items = soup.find_all('li', class_=lambda x: x and 'bg-gray-900' in str(x))
+            print(f"📦 {len(all_items)} potentielle Items gefunden")
+            
+            if len(all_items) == 0:
+                # Fallback: andere Selectors versuchen
+                print("🔄 Versuche alternative Item-Selectors...")
+                fallback_selectors = [
+                    ('div', lambda x: x and ('item' in str(x).lower() or 'stock' in str(x).lower())),
+                    ('li', lambda x: x and 'item' in str(x).lower()),
+                    ('div', lambda x: x and 'bg-' in str(x).lower())
+                ]
+                
+                for tag, class_filter in fallback_selectors:
+                    all_items = soup.find_all(tag, class_=class_filter)
+                    if len(all_items) > 0:
+                        print(f"📦 {len(all_items)} Items mit {tag}-Fallback-Selector gefunden")
+                        break
+            
+            # Bestimme Kategorie basierend auf Position/Context (Original-Logik)
+            categories_found = {
+                'Gear': [],
+                'Eggs': [],
+                'Seeds': [],
+                'Honey': [],
+                'Cosmetics': []
             }
-            async with session.get(STOCK_URL, headers=headers) as response:
-                if response.status == 200:
-                    html = await response.text()
-                    soup = BeautifulSoup(html, 'html.parser')
+            
+            for item in all_items:
+                try:
+                    # Extrahiere Item-Daten (Original-Logik beibehalten)
+                    item_name = None
+                    quantity = 1
+                    img_src = ''
+                    category = 'Unknown'
                     
-                    stock_data = {}
-                    
-                    print("🔍 Starte universelle Stock-Erkennung...")
-                    
-                    # Universelle Methode: Finde alle li-Elemente mit Items
-                    all_items = soup.find_all('li', class_=lambda x: x and 'bg-gray-900' in str(x))
-                    print(f"📦 {len(all_items)} potentielle Items gefunden")
-                    
-                    # Bestimme Kategorie basierend auf Position/Context
-                    categories_found = {
-                        'Gear': [],
-                        'Eggs': [],
-                        'Seeds': [],
-                        'Honey': [],
-                        'Cosmetics': []
-                    }
-                    
-                    for item in all_items:
-                        try:
-                            # Extrahiere Item-Daten
-                            item_name = None
-                            quantity = 1
-                            img_src = ''
-                            category = 'Unknown'
-                            
-                            # Methode 1: Span-Text analysieren
-                            spans = item.find_all('span')
-                            for span in spans:
-                                span_text = span.get_text(strip=True)
-                                if span_text and not span_text.startswith('x') and len(span_text) > 2:
-                                    # Checke ob es eine Quantity-Angabe gibt
-                                    if ' x' in span_text:
-                                        parts = span_text.split(' x')
-                                        item_name = parts[0].strip()
-                                        if len(parts) > 1:
-                                            try:
-                                                quantity = int(parts[1].strip())
-                                            except:
-                                                quantity = 1
-                                    else:
-                                        # Kein ' x' gefunden, prüfe auf andere Patterns
-                                        import re
-                                        # Pattern: "Name x3" (mit direkt angehängtem x)
-                                        match = re.match(r'^(.+?)x(\d+)$', span_text)
-                                        if match:
-                                            item_name = match.group(1).strip()
-                                            quantity = int(match.group(2))
-                                        else:
-                                            item_name = span_text
-                                    break
-                            
-                            # Methode 2: Suche nach Quantity in gray spans
-                            if item_name:
-                                gray_spans = item.find_all('span', class_=lambda x: x and 'gray' in str(x))
-                                for gray_span in gray_spans:
-                                    gray_text = gray_span.get_text(strip=True)
-                                    if gray_text.startswith('x'):
-                                        try:
-                                            quantity = int(gray_text[1:])
-                                        except:
-                                            quantity = 1
-                                        break
-                            
-                            # Methode 3: Image alt-text als Fallback
-                            if not item_name:
-                                img = item.find('img')
-                                if img:
-                                    img_src = img.get('src', '')
-                                    alt_text = img.get('alt', '').strip()
-                                    if alt_text and len(alt_text) > 2:
-                                        item_name = alt_text
-                            
-                            # Methode 4: Volltext-Analyse als letzter Fallback
-                            if not item_name:
-                                full_text = item.get_text(strip=True)
-                                # Entferne bekannte Störtexte
-                                clean_text = full_text.replace('UPDATES IN:', '').strip()
-                                # Suche nach Pattern "Name xNumber"
+                    # Methode 1: Span-Text analysieren
+                    spans = item.find_all('span')
+                    for span in spans:
+                        span_text = span.get_text(strip=True)
+                        if span_text and not span_text.startswith('x') and len(span_text) > 2:
+                            if ' x' in span_text:
+                                parts = span_text.split(' x')
+                                item_name = parts[0].strip()
+                                if len(parts) > 1:
+                                    try:
+                                        quantity = int(parts[1].strip())
+                                    except:
+                                        quantity = 1
+                            else:
+                                # Kein ' x' gefunden, prüfe auf andere Patterns
                                 import re
-                                match = re.search(r'^(.+?)\s+x(\d+)$', clean_text)
+                                match = re.match(r'^(.+?)x(\d+)$', span_text)
                                 if match:
                                     item_name = match.group(1).strip()
                                     quantity = int(match.group(2))
                                 else:
-                                    # Pattern: "NamexNumber" (ohne Leerzeichen)
-                                    match = re.search(r'^(.+?)x(\d+)$', clean_text)
-                                    if match:
-                                        item_name = match.group(1).strip()
-                                        quantity = int(match.group(2))
-                                    elif clean_text and len(clean_text) > 2 and not clean_text.isdigit():
-                                        item_name = clean_text
+                                    item_name = span_text
+                            break
+                    
+                    # Methode 2: Suche nach Quantity in gray spans
+                    if item_name:
+                        gray_spans = item.find_all('span', class_=lambda x: x and 'gray' in str(x))
+                        for gray_span in gray_spans:
+                            gray_text = gray_span.get_text(strip=True)
+                            if gray_text.startswith('x'):
+                                try:
+                                    quantity = int(gray_text[1:])
+                                except:
+                                    quantity = 1
+                                break
+                    
+                    # Methode 3: Image alt-text als Fallback
+                    if not item_name:
+                        img = item.find('img')
+                        if img:
+                            img_src = img.get('src', '')
+                            alt_text = img.get('alt', '').strip()
+                            if alt_text and len(alt_text) > 2:
+                                item_name = alt_text
+                    
+                    # Methode 4: Volltext-Analyse als letzter Fallback
+                    if not item_name:
+                        full_text = item.get_text(strip=True)
+                        clean_text = full_text.replace('UPDATES IN:', '').strip()
+                        import re
+                        match = re.search(r'^(.+?)\s+x(\d+)$', clean_text)
+                        if match:
+                            item_name = match.group(1).strip()
+                            quantity = int(match.group(2))
+                        else:
+                            match = re.search(r'^(.+?)x(\d+)$', clean_text)
+                            if match:
+                                item_name = match.group(1).strip()
+                                quantity = int(match.group(2))
+                            elif clean_text and len(clean_text) > 2 and not clean_text.isdigit():
+                                item_name = clean_text
+                    
+                    if item_name:
+                        # Bestimme Kategorie durch Kontext-Analyse
+                        category = determine_item_category(item, item_name, soup)
+                        
+                        # Bereinige Item-Namen
+                        item_name = clean_item_name(item_name)
+                        
+                        if item_name and category != 'Unknown':
+                            categories_found[category].append(item_name)
                             
-                            if item_name:
-                                # Bestimme Kategorie durch Kontext-Analyse
-                                category = determine_item_category(item, item_name, soup)
-                                
-                                # Bereinige Item-Namen
-                                item_name = clean_item_name(item_name)
-                                
-                                if item_name and category != 'Unknown':
-                                    categories_found[category].append(item_name)
-                                    
-                                    # Handle duplicate items (z.B. 2x Common Egg)
-                                    unique_key = f"{item_name}_{category}"
-                                    counter = 1
-                                    base_key = unique_key
-                                    
-                                    # Finde eindeutigen Key für duplicates
-                                    while unique_key in stock_data:
-                                        counter += 1
-                                        unique_key = f"{base_key}_{counter}"
-                                    
-                                    # Verwende den Item-Namen als Display-Name, aber unique_key als interner Key
-                                    stock_data[unique_key] = {
+                            # Handle duplicate items
+                            unique_key = f"{item_name}_{category}"
+                            counter = 1
+                            base_key = unique_key
+                            
+                            while unique_key in stock_data:
+                                counter += 1
+                                unique_key = f"{base_key}_{counter}"
+                            
+                            stock_data[unique_key] = {
+                                'available': True,
+                                'category': category,
+                                'quantity': quantity,
+                                'image': img_src,
+                                'timestamp': datetime.now(),
+                                'display_name': item_name
+                            }
+                            print(f"  ✅ {item_name} ({category}) x{quantity} [Key: {unique_key}]")
+                            
+                except Exception as e:
+                    print(f"❌ Fehler beim Parsen von Item: {e}")
+                    continue
+            
+            # Zeige Zusammenfassung
+            print(f"\n📊 Stock-Zusammenfassung:")
+            for cat, items in categories_found.items():
+                if items:
+                    print(f"  {cat}: {len(items)} Items")
+            
+            print(f"\n🎯 Total: {len(stock_data)} Items erkannt (Selenium)")
+            return stock_data
+            
+        except Exception as e:
+            print(f"❌ Selenium fetch_stock_data Fehler: {e}")
+            
+            # Fallback zur aiohttp-Methode
+            print("🔄 Versuche Fallback zu aiohttp...")
+            try:
+                return await fetch_stock_data_aiohttp_fallback()
+            except Exception as fallback_error:
+                print(f"❌ Auch Fallback fehlgeschlagen: {fallback_error}")
+                return {}
+
+async def fetch_stock_data_aiohttp_fallback():
+    """Fallback zur originalen aiohttp-Methode falls Selenium fehlschlägt"""
+    try:
+        print("🔄 Fallback: Versuche aiohttp-Methode...")
+        async with aiohttp.ClientSession() as session:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
+            }
+            async with session.get(STOCK_URL, headers=headers, timeout=30) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    print("✅ Fallback aiohttp erfolgreich")
+                    
+                    # Schnelle Parsing wie Original, aber vereinfacht
+                    soup = BeautifulSoup(html, 'html.parser')
+                    stock_data = {}
+                    
+                    all_items = soup.find_all('li', class_=lambda x: x and 'bg-gray-900' in str(x))
+                    
+                    for i, item in enumerate(all_items[:10]):  # Nur erste 10 Items als Fallback
+                        try:
+                            spans = item.find_all('span')
+                            for span in spans:
+                                span_text = span.get_text(strip=True)
+                                if span_text and len(span_text) > 2:
+                                    stock_data[f"fallback_item_{i}"] = {
                                         'available': True,
-                                        'category': category,
-                                        'quantity': quantity,
-                                        'image': img_src,
+                                        'category': 'Unknown',
+                                        'quantity': 1,
+                                        'image': '',
                                         'timestamp': datetime.now(),
-                                        'display_name': item_name  # Echter Name für Anzeige
+                                        'display_name': span_text
                                     }
-                                    print(f"  ✅ {item_name} ({category}) x{quantity} [Key: {unique_key}]")
-                                
-                        except Exception as e:
-                            print(f"❌ Fehler beim Parsen von Item: {e}")
+                                    break
+                        except:
                             continue
                     
-                    # Zeige Zusammenfassung
-                    print(f"\n📊 Stock-Zusammenfassung:")
-                    for cat, items in categories_found.items():
-                        if items:
-                            print(f"  {cat}: {len(items)} Items")
-                    
-                    print(f"\n🎯 Total: {len(stock_data)} Items erkannt")
+                    print(f"✅ Fallback: {len(stock_data)} Items gefunden")
                     return stock_data
                 else:
-                    print(f"❌ HTTP Error: {response.status}")
-                    return None
+                    print(f"❌ Fallback HTTP Status: {response.status}")
+                    return {}
     except Exception as e:
-        print(f"❌ Fehler beim Abrufen der Stock-Daten: {e}")
-        return None
+        print(f"❌ Fallback Fehler: {e}")
+        return {}
 
 def determine_item_category(item_element, item_name, soup):
     """Bestimmt die Kategorie eines Items durch Kontext-Analyse"""
@@ -723,6 +809,158 @@ def clean_item_name(name):
     name = re.sub(r'\s+x\d+$', '', name)
     
     return name.strip()
+
+def setup_chrome_driver():
+    """Erstellt und konfiguriert Chrome WebDriver für Cloudflare-Umgehung"""
+    global _webdriver_instance
+    
+    if _webdriver_instance is not None:
+        try:
+            # Test ob Driver noch funktioniert
+            _webdriver_instance.current_url
+            return _webdriver_instance
+        except:
+            # Driver ist tot, erstelle neuen
+            try:
+                _webdriver_instance.quit()
+            except:
+                pass
+            _webdriver_instance = None
+    
+    print("🔧 Initialisiere Chrome WebDriver für Selenium...")
+    
+    # Chrome-Pfad finden
+    chrome_paths = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        r"C:\Users\{}\AppData\Local\Google\Chrome\Application\chrome.exe".format(os.getenv('USERNAME'))
+    ]
+    
+    chrome_path = None
+    for path in chrome_paths:
+        if os.path.exists(path):
+            chrome_path = path
+            print(f"✅ Chrome gefunden: {path}")
+            break
+    
+    if not chrome_path:
+        raise Exception("❌ Chrome Browser nicht gefunden! Bitte Chrome installieren.")
+    
+    # Chrome Optionen für Bot-Betrieb
+    chrome_options = Options()
+    chrome_options.binary_location = chrome_path
+    chrome_options.add_argument("--headless")  # Headless für Production
+    chrome_options.add_argument("--no-sandbox") 
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-plugins")
+    chrome_options.add_argument("--disable-images")  # Schneller ohne Bilder
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
+    
+    try:
+        # WebDriver erstellen
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+        # Anti-Detection Maßnahmen
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
+        _webdriver_instance = driver
+        print("✅ Chrome WebDriver erfolgreich initialisiert")
+        return driver
+        
+    except Exception as e:
+        print(f"❌ Chrome WebDriver Setup fehlgeschlagen: {e}")
+        raise e
+
+def selenium_fetch_stock_sync(url, max_wait_time=90):
+    """Synchrone Selenium-basierte Stock-Daten-Abfrage mit Cloudflare-Umgehung"""
+    driver = None
+    
+    try:
+        print(f"🌐 Selenium: Hole Stock-Daten von {url}")
+        driver = setup_chrome_driver()
+        
+        print("📡 Navigiere zur VulcanValues Stock-Seite...")  
+        driver.get(url)
+        
+        # Initial wait für Seiten-Load
+        time.sleep(5)
+        
+        # Cloudflare Challenge Detection und Behandlung
+        challenge_start = time.time()
+        challenge_detected = False
+        
+        while time.time() - challenge_start < max_wait_time:
+            page_source = driver.page_source
+            elapsed = int(time.time() - challenge_start)
+            
+            # Check für Cloudflare Challenge-Indikatoren
+            challenge_indicators = [
+                "Nur einen Moment", "Just a moment", "Checking your browser", 
+                "DDoS protection", "cf-browser-verification", "Please wait"
+            ]
+            
+            challenge_active = any(indicator in page_source for indicator in challenge_indicators)
+            
+            if challenge_active and not challenge_detected:
+                challenge_detected = True
+                print("🔒 Cloudflare Challenge erkannt - warte auf automatische Lösung...")
+            
+            if not challenge_active and len(page_source) > 15000:
+                # Check für echte VulcanValues-Content-Indikatoren
+                content_indicators = [
+                    "Seeds", "Eggs", "Gear", "shop", "price", "cost", 
+                    "item", "buy", "purchase", "roblox", "vulcan"
+                ]
+                real_content = any(ind.lower() in page_source.lower() for ind in content_indicators)
+                
+                if real_content:
+                    print(f"✅ Cloudflare Challenge erfolgreich umgangen nach {elapsed}s")
+                    print(f"📊 Echte Stock-Daten erhalten ({len(page_source)} Zeichen)")
+                    return page_source
+                else:
+                    if elapsed > 30:  # Nach 30s auch ohne perfekte Indikatoren versuchen
+                        print(f"⚠️ Kein perfekter Content, aber Challenge beendet nach {elapsed}s")
+                        return page_source
+            
+            # Status-Updates alle 15 Sekunden
+            if elapsed > 0 and elapsed % 15 == 0:
+                if challenge_active:
+                    print(f"⏳ Cloudflare Challenge läuft... {elapsed}s/{max_wait_time}s")
+                else:
+                    print(f"⏳ Warte auf vollständigen Content... {elapsed}s/{max_wait_time}s")
+            
+            time.sleep(3)
+        
+        # Timeout erreicht - verwende was wir haben
+        final_source = driver.page_source
+        print(f"⚠️ Challenge-Timeout nach {max_wait_time}s")
+        print(f"📄 Verfügbarer Content: {len(final_source)} Zeichen")
+        
+        if len(final_source) > 10000:
+            print("✅ Verwende verfügbaren Content trotz Timeout")
+            return final_source
+        else:
+            raise Exception("❌ Keine brauchbaren Daten nach Challenge-Timeout")
+    
+    except Exception as e:
+        print(f"❌ Selenium Fetch Fehler: {e}")
+        raise e
+
+def cleanup_webdriver():
+    """Bereinigt WebDriver bei Bot-Shutdown"""
+    global _webdriver_instance
+    if _webdriver_instance:
+        try:
+            _webdriver_instance.quit()
+            _webdriver_instance = None
+            print("🧹 WebDriver erfolgreich bereinigt")
+        except Exception as e:
+            print(f"⚠️ WebDriver Cleanup Fehler: {e}")
 
 @tasks.loop(minutes=5)
 async def check_stock():
@@ -2690,4 +2928,14 @@ async def on_command_error(ctx, error):
 
 # Bot starten
 if __name__ == "__main__":
-    bot.run(TOKEN)
+    try:
+        print("🚀 Starte Grow a Garden Stock Bot mit Selenium-Integration...")
+        bot.run(TOKEN)
+    except KeyboardInterrupt:
+        print("\n🛑 Bot-Shutdown erkannt...")
+        cleanup_webdriver()
+        print("👋 Bot erfolgreich beendet")
+    except Exception as e:
+        print(f"❌ Bot-Fehler: {e}")
+        cleanup_webdriver()
+        raise

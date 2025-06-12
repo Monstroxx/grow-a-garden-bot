@@ -829,8 +829,14 @@ def setup_chrome_driver():
     
     print("🔧 Initialisiere Chrome WebDriver für Selenium...")
     
-    # Chrome-Pfad finden
+    # Chrome-Pfad finden (Windows + Linux/Raspberry Pi)
     chrome_paths = [
+        # Raspberry Pi / Linux paths
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium",
+        "/snap/bin/chromium",
+        # Windows paths
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
         r"C:\Users\{}\AppData\Local\Google\Chrome\Application\chrome.exe".format(os.getenv('USERNAME'))
@@ -856,6 +862,9 @@ def setup_chrome_driver():
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-plugins")
     chrome_options.add_argument("--disable-images")  # Schneller ohne Bilder
+    chrome_options.add_argument("--disable-gpu")  # Für Raspberry Pi
+    chrome_options.add_argument("--remote-debugging-port=9222")  # Für Debugging
+    chrome_options.add_argument("--memory-pressure-off")  # Weniger RAM-Druck
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
